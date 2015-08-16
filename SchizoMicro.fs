@@ -13,16 +13,19 @@ type Cell =
     | NativeMacro   of NativeCall
     | Lambda    of NormalCall
     | Macro     of NormalCall
-    | Environment of Map<string, Cell>
+    | Environment   of Map<string, Cell>
+    | Continuation  of Map<string, Cell> * Cell
+    | Exception of Cell
+
 
 and NativeCall = {
     ArgCount    : int
-    FFI         : Cell[] -> Cell
+    FFI         : Map<string, Cell> * Cell[] -> Cell
 }
 
 and NormalCall = {
     Args        : string[]
-    Body        : Cell list
+    Body        : Cell[]
 }
 
 and DebugInfo = {
@@ -138,9 +141,9 @@ let rec readList (acc: Cell list) (str: char list) =
 and nextToken (str: char list) : Cell * char list =
     let str = skipWS str
     match str with
-    | '\'' :: t -> readChar t
+    | '\'' :: t -> readChar      t
     | '"'  :: t -> readString [] t
-    | '('  :: t -> readList [] t
+    | '('  :: t -> readList   [] t
     | sign :: ch :: t when (sign = '+' || sign = '-') && isDigit ch -> readNumber str
     | ch   :: t when isDigit ch -> readNumber str 
     | ch   :: t when isAlpha ch  || isSpecial ch -> readSymbol [] str
@@ -155,6 +158,63 @@ let parse (str: char list) : Cell list =
             loop (tok :: acc) nextList
     loop [] str
 
+type Cell
+with
+    member x.Eval (env: Map<string, Cell>) =
+
+        let rec evalCell (env: Map<string, Cell>) c =
+            match c with
+            | CUnit
+            | CBoolean  _
+            | CChar     _
+            | CInt64    _
+            | CReal64   _
+            | CString   _
+            | Exception _ 
+            | Environment   _
+            | NativeLambda  _
+            | NativeMacro   _
+            | Lambda    _
+            | Macro     _   -> x
+            | CSymbol  s    ->
+                match env.TryFind s with
+                | Some c -> evalCell env c
+                | None   -> Exception (CString (sprintf "unable to find symbol %s" s))
+            
+            | Continuation  (env, c)    -> evalCell env c
+            | CList     (h :: t)  ->
+                match evalCell env h with
+                | NativeLambda { ArgCount = argc; FFI = ffi } ->
+                    let args = t |> Array.ofList
+                    if argc <> args.Length
+                    then Exception (CString (sprintf "native lambda requires %d arguments" argc))
+                    else ffi (env, evalArray env args)
+
+                | NativeMacro { ArgCount = argc; FFI = ffi } ->
+                    let args = t |> Array.ofList
+                    if argc <> args.Length
+                    then Exception (CString (sprintf "native macro requires %d arguments" argc))
+                    else ffi (env, args)
+
+                | _ -> Exception (CString "unsupported")
+
+        and evalArray env (l: Cell[]) =
+            let arr = Array.init l.Length (fun _ -> CUnit)
+            let rec loop i =
+                if i = l.Length
+                then ()
+                else
+                    arr.[i] <- evalCell env l.[i]
+                    match arr.[i] with
+                    | Exception _ -> ()
+                    | _           -> loop (i + 1)
+            loop 0
+            arr
+
+        evalCell env x
+            
+
+        
 [<EntryPoint>]
 let main argv =
     [|
