@@ -1,6 +1,6 @@
 ﻿open System
 
-type CellData =
+type Cell =
     | CUnit
     | CBoolean  of bool
     | CChar     of char
@@ -25,20 +25,11 @@ and NormalCall = {
     Body        : Cell list
 }
 
-and Cell = {
-    Data        : CellData
-    Tags        : Cell list
-    DebugInfo   : DebugInfo option
-}
-
 and DebugInfo = {
     Line        : int
     Offset      : int
 }
 
-type CellData
-with
-    member x.ToCell = { Cell.Data = x; Tags = []; DebugInfo = None }
 let isAlpha ch =
     if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
     then true
@@ -62,17 +53,17 @@ let readChar (str: char list) =
     match str with
     | '\\' :: ch :: '\'' :: t ->
         match ch with
-        | 'n'  -> (CChar '\n').ToCell, t
-        | 'r'  -> (CChar '\r').ToCell, t
-        | 'a'  -> (CChar '\a').ToCell, t
-        | '\'' -> (CChar '\'').ToCell, t
+        | 'n'  -> CChar '\n', t
+        | 'r'  -> CChar '\r', t
+        | 'a'  -> CChar '\a', t
+        | '\'' -> CChar '\'', t
         | _    -> failwith (sprintf "unknown escape character %c after \\ in char" ch)
-    | ch   :: '\'' :: t       -> (CChar ch).ToCell, t
+    | ch   :: '\'' :: t       -> CChar ch, t
     | _               -> failwith "not a well formed char"
 
 let rec readString (acc: char list) (str: char list) =
     match str with
-    | '"'  :: t -> (CString (System.String(acc |> List.rev |> Array.ofList))).ToCell, t
+    | '"'  :: t -> CString (System.String(acc |> List.rev |> Array.ofList)), t
     | '\\' :: ch :: t ->
         let newCh =
             match ch with
@@ -88,7 +79,14 @@ let rec readString (acc: char list) (str: char list) =
 let rec readSymbol (acc: char list) (str: char list) =
     match str with
     | ch :: t when isAlpha ch || isDigit ch || isSpecial ch -> readSymbol (ch :: acc) t
-    | _                     -> (CSymbol (System.String(acc |> List.rev |> Array.ofList))).ToCell, str    // anything else, just bail
+    | _                     ->
+        let sym = System.String(acc |> List.rev |> Array.ofList)
+        let sym =
+            match sym with
+            | "true" -> CBoolean true
+            | "false" -> CBoolean false
+            | _ -> CSymbol sym
+        sym, str    // anything else, just bail
 
 let readNumber (str: char list) =
     let rec readInt (acc: char list) (str: char list) =
@@ -113,7 +111,7 @@ let readNumber (str: char list) =
     let intstr = System.String (integral |> List.toArray)
 
     if intstr.Length <> 0
-    then (CInt64 (Convert.ToInt64 intstr)).ToCell, nextList
+    then CInt64 (Convert.ToInt64 intstr), nextList
     else failwith "invalid number"
     
 let rec skipWS (str: char list) =
@@ -133,23 +131,16 @@ let rec readList (acc: Cell list) (str: char list) =
     | []        -> failwith "list doesn't have an end ')'"
     | ')' :: t  ->
         match acc with
-        | [] -> CUnit.ToCell, t
-        | _  -> (CList (acc |> List.rev)).ToCell, t
+        | [] -> CUnit, t
+        | _  -> CList (acc |> List.rev), t
     | _         -> let tok, nextList = nextToken str in readList (tok :: acc) nextList
 
 and nextToken (str: char list) : Cell * char list =
-    let isCut =
-        function
-        | ')' | ' ' | '\r' | '\n' | '\t' -> true
-        | _ -> false
-
     let str = skipWS str
     match str with
     | '\'' :: t -> readChar t
     | '"'  :: t -> readString [] t
     | '('  :: t -> readList [] t
-    | 't' :: 'r' :: 'u' :: 'e' :: t -> (CBoolean true).ToCell, t
-    | 'f' :: 'a' :: 'l' :: 's' :: 'e' :: t -> (CBoolean false).ToCell, t
     | sign :: ch :: t when (sign = '+' || sign = '-') && isDigit ch -> readNumber str
     | ch   :: t when isDigit ch -> readNumber str 
     | ch   :: t when isAlpha ch  || isSpecial ch -> readSymbol [] str
@@ -182,6 +173,7 @@ let main argv =
         "(a b (10 12 cd) (10 11 12))"
         "false"
         "true"
+        "true(false)"
     |]
     |> Array.iter
         (fun e ->
