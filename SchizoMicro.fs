@@ -1,31 +1,31 @@
 ﻿open System
 
-type Cell =
-    | CUnit
-    | CBoolean  of bool
-    | CChar     of char
-    | CInt64    of int64
-    | CReal64   of double
-    | CString   of string
-    | CSymbol   of string
-    | CList     of Cell list
+type Exp =
+    | EUnit
+    | EBoolean  of bool
+    | EChar     of char
+    | EInt64    of int64
+    | EReal64   of double
+    | ESymbol   of string
+    | EList     of Exp list
+    | Application   of Exp * Exp list
     | NativeLambda  of NativeCall
     | NativeMacro   of NativeCall
     | Lambda    of NormalCall
     | Macro     of NormalCall
-    | Environment   of Map<string, Cell>
-    | Continuation  of Map<string, Cell> * Cell
-    | Exception of Cell
+    | Environment   of Map<string, Exp>
+    | Continuation  of Map<string, Exp> * Exp
+    | Exception of Exp
 
 
 and NativeCall = {
     ArgCount    : int
-    FFI         : Map<string, Cell> * Cell[] -> Cell
+    FFI         : Map<string, Exp> * Exp[] -> Exp
 }
 
 and NormalCall = {
     Args        : string[]
-    Body        : Cell[]
+    Body        : Exp[]
 }
 
 and DebugInfo = {
@@ -52,22 +52,22 @@ let isSpecial =
     | '>'   | '|'   | '~'   | '.' -> true
     | _   -> false
 
-let readChar (str: char list) =
+let readChar (str: Exp list) : Exp * Exp list =
     match str with
-    | '\\' :: ch :: '\'' :: t ->
+    | EChar '\\' :: EChar ch :: EChar '\'' :: t ->
         match ch with
-        | 'n'  -> CChar '\n', t
-        | 'r'  -> CChar '\r', t
-        | 'a'  -> CChar '\a', t
-        | '\'' -> CChar '\'', t
+        | 'n'  -> EChar '\n', t
+        | 'r'  -> EChar '\r', t
+        | 'a'  -> EChar '\a', t
+        | '\'' -> EChar '\'', t
         | _    -> failwith (sprintf "unknown escape character %c after \\ in char" ch)
-    | ch   :: '\'' :: t       -> CChar ch, t
+    | EChar ch   :: EChar '\'' :: t       -> EChar ch, t
     | _               -> failwith "not a well formed char"
 
-let rec readString (acc: char list) (str: char list) =
+let rec readString (acc: Exp list) (str: Exp list) : Exp * Exp list =
     match str with
-    | '"'  :: t -> CString (System.String(acc |> List.rev |> Array.ofList)), t
-    | '\\' :: ch :: t ->
+    | EChar '"'  :: t -> EList (acc |> List.rev), t // "
+    | EChar '\\' :: EChar ch :: t ->
         let newCh =
             match ch with
             | 'n'  -> '\n'
@@ -75,32 +75,32 @@ let rec readString (acc: char list) (str: char list) =
             | 'a'  -> '\a'
             | '\'' -> '\''
             | _    -> failwith (sprintf "unknown escape character %c after \\ in string" ch)
-        readString (newCh :: acc) t
+        readString (EChar newCh :: acc) t
     | ch :: t -> readString (ch :: acc) t
     | _ -> failwith "ill formated string"
 
-let rec readSymbol (acc: char list) (str: char list) =
+let rec readSymbol (acc: Exp list) (str: Exp list) : Exp * Exp list =
     match str with
-    | ch :: t when isAlpha ch || isDigit ch || isSpecial ch -> readSymbol (ch :: acc) t
+    | EChar ch :: t when isAlpha ch || isDigit ch || isSpecial ch -> readSymbol (EChar ch :: acc) t
     | _                     ->
-        let sym = System.String(acc |> List.rev |> Array.ofList)
+        let sym = System.String(acc |> List.rev |> Array.ofList |> Array.map (function | EChar ch -> ch | _ -> failwith "unreachable"))
         let sym =
             match sym with
-            | "true" -> CBoolean true
-            | "false" -> CBoolean false
-            | _ -> CSymbol sym
+            | "true" -> EBoolean true
+            | "false" -> EBoolean false
+            | _ -> ESymbol sym
         sym, str    // anything else, just bail
 
-let readNumber (str: char list) =
-    let rec readInt (acc: char list) (str: char list) =
+let readNumber (str: Exp list) : Exp * Exp list=
+    let rec readInt (acc: Exp list) (str: Exp list) =
         match str with
-        | ch :: t when isDigit ch ->  readInt (ch :: acc) t
+        | EChar ch :: t when isDigit ch ->  readInt (EChar ch :: acc) t
         | _ -> List.rev acc, str
 
     let integral, nextList =
         match str with
-        | '+' :: t -> let i, nextList = readInt [] t in '+' :: i, nextList
-        | '-' :: t -> let i, nextList = readInt [] t in '-' :: i, nextList
+        | EChar '+' :: t -> let i, nextList = readInt [] t in EChar '+' :: i, nextList
+        | EChar '-' :: t -> let i, nextList = readInt [] t in EChar '-' :: i, nextList
         | _ -> readInt [] str
 
 //    match nextList with
@@ -111,13 +111,13 @@ let readNumber (str: char list) =
 //        | e :: t when e = 'E' || e = 'e' ->
 //            let expn, nextList = readInt [] t
 
-    let intstr = System.String (integral |> List.toArray)
+    let intstr = System.String (integral |> List.toArray |> Array.map (function | EChar ch -> ch | _ -> failwith "unreachable"))
 
     if intstr.Length <> 0
-    then CInt64 (Convert.ToInt64 intstr), nextList
+    then EInt64 (Convert.ToInt64 intstr), nextList
     else failwith "invalid number"
     
-let rec skipWS (str: char list) =
+let rec skipWS (str: Exp list) : Exp list =
     let isWS = function
         | ' ' 
         | '\n'
@@ -125,32 +125,32 @@ let rec skipWS (str: char list) =
         | _    -> false
 
     match str with
-    | ch :: t when isWS ch -> skipWS t
+    | EChar ch :: t when isWS ch -> skipWS t
     | _ -> str
 
-let rec readList (acc: Cell list) (str: char list) =
+let rec readList (acc: Exp list) (str: Exp list) : Exp * Exp list =
     let str = skipWS str
     match str with
     | []        -> failwith "list doesn't have an end ')'"
-    | ')' :: t  ->
+    | EChar ')' :: t  ->
         match acc with
-        | [] -> CUnit, t
-        | _  -> CList (acc |> List.rev), t
+        | [] -> EUnit, t
+        | _  -> EList (acc |> List.rev), t
     | _         -> let tok, nextList = nextToken str in readList (tok :: acc) nextList
 
-and nextToken (str: char list) : Cell * char list =
+and nextToken (str: Exp list) : Exp * Exp list =
     let str = skipWS str
     match str with
-    | '\'' :: t -> readChar      t
-    | '"'  :: t -> readString [] t
-    | '('  :: t -> readList   [] t
-    | sign :: ch :: t when (sign = '+' || sign = '-') && isDigit ch -> readNumber str
-    | ch   :: t when isDigit ch -> readNumber str 
-    | ch   :: t when isAlpha ch  || isSpecial ch -> readSymbol [] str
+    | EChar '\'' :: t -> readChar      t
+    | EChar '"'  :: t -> readString [] t  // "
+    | EChar '('  :: t -> readList   [] t
+    | EChar sign :: EChar ch :: t when (sign = '+' || sign = '-') && isDigit ch -> readNumber str 
+    | EChar ch   :: t when isDigit ch -> readNumber str 
+    | EChar ch   :: t when isAlpha ch  || isSpecial ch -> readSymbol [] str
     | _ -> failwith "ill formed S-Expression" 
 
-let parse (str: char list) : Cell list =
-    let rec loop (acc: Cell list) (str: char list) : Cell list =
+let parse (str: Exp list) : Exp list =
+    let rec loop (acc: Exp list) (str: Exp list) : Exp list =
         match str with
         | [] -> List.rev acc
         | _ ->
@@ -158,48 +158,49 @@ let parse (str: char list) : Cell list =
             loop (tok :: acc) nextList
     loop [] str
 
-type Cell
+type Exp
 with
-    member x.Eval (env: Map<string, Cell>) =
+    static member fromString(str: string) = str |> Seq.toList |> List.map EChar |> EList
 
-        let rec evalCell (env: Map<string, Cell>) c =
+    member x.Eval (env: Map<string, Exp>) =
+
+        let rec evalCell (env: Map<string, Exp>) c =
             match c with
-            | CUnit
-            | CBoolean  _
-            | CChar     _
-            | CInt64    _
-            | CReal64   _
-            | CString   _
+            | EUnit
+            | EBoolean  _
+            | EChar     _
+            | EInt64    _
+            | EReal64   _
             | Exception _ 
             | Environment   _
             | NativeLambda  _
             | NativeMacro   _
             | Lambda    _
             | Macro     _   -> x
-            | CSymbol  s    ->
+            | ESymbol  s    ->
                 match env.TryFind s with
                 | Some c -> evalCell env c
-                | None   -> Exception (CString (sprintf "unable to find symbol %s" s))
+                | None   -> Exception ((sprintf "unable to find symbol %s" s) |> Exp.fromString)
             
             | Continuation  (env, c)    -> evalCell env c
-            | CList     (h :: t)  ->
+            | EList     (h :: t)  ->
                 match evalCell env h with
                 | NativeLambda { ArgCount = argc; FFI = ffi } ->
                     let args = t |> Array.ofList
                     if argc <> args.Length
-                    then Exception (CString (sprintf "native lambda requires %d arguments" argc))
+                    then Exception ((sprintf "native lambda requires %d arguments" argc) |> Exp.fromString)
                     else ffi (env, evalArray env args)
 
                 | NativeMacro { ArgCount = argc; FFI = ffi } ->
                     let args = t |> Array.ofList
                     if argc <> args.Length
-                    then Exception (CString (sprintf "native macro requires %d arguments" argc))
+                    then Exception ((sprintf "native macro requires %d arguments" argc) |> Exp.fromString)
                     else ffi (env, args)
 
-                | _ -> Exception (CString "unsupported")
+                | _ -> Exception ("unsupported" |> Exp.fromString)
 
-        and evalArray env (l: Cell[]) =
-            let arr = Array.init l.Length (fun _ -> CUnit)
+        and evalArray env (l: Exp[]) =
+            let arr = Array.init l.Length (fun _ -> EUnit)
             let rec loop i =
                 if i = l.Length
                 then ()
@@ -237,6 +238,6 @@ let main argv =
     |]
     |> Array.iter
         (fun e ->
-            printfn "%A" (parse (e |> Seq.toList)))
+            printfn "%A" (parse (e |> Seq.toList |> List.map EChar)))
 
     0 // return an integer exit code
