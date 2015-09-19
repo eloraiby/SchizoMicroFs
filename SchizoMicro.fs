@@ -8,6 +8,7 @@ type Exp =
     | EReal64   of double
     | ESymbol   of string
     | EList     of Exp list
+    | ETuple    of Exp list
     | Application   of Exp * Exp list
     | NativeLambda  of NativeCall
     | NativeMacro   of NativeCall
@@ -45,10 +46,10 @@ let isDigit ch =
 
 let isSpecial =
     function
-    | '`'   | '!'   | '@'   | '#'  
-    | '$'   | '%'   | '^'   | '&'  
-    | '*'   | '_'   | '-'   | '+'  
-    | '='   | '/'   | '?'   | '<'  
+    | '`'   | '!'   | '@'   | '#' 
+    | '$'   | '%'   | '^'   | '&' 
+    | '*'   | '_'   | '-'   | '+' 
+    | '='   | '/'   | '?'   | '<' 
     | '>'   | '|'   | '~'   | '.' -> true
     | _   -> false
 
@@ -116,10 +117,10 @@ let readNumber (str: Exp list) : Exp * Exp list=
     if intstr.Length <> 0
     then EInt64 (Convert.ToInt64 intstr), nextList
     else failwith "invalid number"
-    
+   
 let rec skipWS (str: Exp list) : Exp list =
     let isWS = function
-        | ' ' 
+        | ' '
         | '\n'
         | '\r' -> true
         | _    -> false
@@ -128,26 +129,40 @@ let rec skipWS (str: Exp list) : Exp list =
     | EChar ch :: t when isWS ch -> skipWS t
     | _ -> str
 
-let rec readList (acc: Exp list) (str: Exp list) : Exp * Exp list =
+let rec readListOfList splitterChar endingChar (endWithSplitter: bool) (boxFunc: Exp list -> Exp) (acc: Exp list) (str: Exp list) =
     let str = skipWS str
     match str with
-    | []        -> failwith "list doesn't have an end ')'"
-    | EChar ')' :: t  ->
-        match acc with
-        | [] -> EUnit, t
-        | _  -> EList (acc |> List.rev), t
-    | _         -> let tok, nextList = nextToken str in readList (tok :: acc) nextList
+    | []                                 -> failwith (sprintf "simplified list doesn't have an end '%c'" endingChar)
+    | EChar ch :: t when ch = endingChar -> (boxFunc (acc |> List.rev)), t
+    | _ ->
+        let rec readList (acc: Exp list) (str: Exp list) : Exp * Exp list =
+            let str = skipWS str
+            match str with
+            | []                                                        -> failwith (sprintf "list doesn't have an end '%c'" endingChar)
+            | EChar ch :: t when ch = endingChar && endWithSplitter     -> failwith (sprintf "should have '%c' before having '%c'" splitterChar endingChar)
+            | EChar ch :: t when ch = endingChar && not endWithSplitter -> EList (acc |> List.rev), str
+            | EChar ch :: t when ch = splitterChar                      -> EList (acc |> List.rev), t
+            | _                                                         -> let tok, nextList = nextToken str in readList (tok :: acc) nextList
+
+        let tok, nextList = readList [] str
+        readListOfList splitterChar endingChar endWithSplitter boxFunc (tok :: acc) nextList
+
+// read simplified list
+and readSL    = readListOfList ';' '}' true  EList
+
+and readTuple = readListOfList ',' ')' false ETuple
 
 and nextToken (str: Exp list) : Exp * Exp list =
     let str = skipWS str
     match str with
     | EChar '\'' :: t -> readChar      t
     | EChar '"'  :: t -> readString [] t  // "
-    | EChar '('  :: t -> readList   [] t
-    | EChar sign :: EChar ch :: t when (sign = '+' || sign = '-') && isDigit ch -> readNumber str 
-    | EChar ch   :: t when isDigit ch -> readNumber str 
+    | EChar '('  :: t -> readTuple  [] t
+    | EChar '{'  :: t -> readSL     [] t
+    | EChar sign :: EChar ch :: t when (sign = '+' || sign = '-') && isDigit ch -> readNumber str
+    | EChar ch   :: t when isDigit ch -> readNumber str
     | EChar ch   :: t when isAlpha ch  || isSpecial ch -> readSymbol [] str
-    | _ -> failwith "ill formed S-Expression" 
+    | _ -> failwith "ill formed S-Expression"
 
 let parse (str: Exp list) : Exp list =
     let rec loop (acc: Exp list) (str: Exp list) : Exp list =
@@ -171,7 +186,7 @@ with
             | EChar     _
             | EInt64    _
             | EReal64   _
-            | Exception _ 
+            | Exception _
             | Environment   _
             | NativeLambda  _
             | NativeMacro   _
@@ -181,7 +196,7 @@ with
                 match env.TryFind s with
                 | Some c -> evalCell env c
                 | None   -> Exception ((sprintf "unable to find symbol %s" s) |> Exp.fromString)
-            
+           
             | Continuation  (env, c)    -> evalCell env c
             | EList     (h :: t)  ->
                 match evalCell env h with
@@ -213,9 +228,9 @@ with
             arr
 
         evalCell env x
-            
+           
 
-        
+       
 [<EntryPoint>]
 let main argv =
     [|
@@ -228,6 +243,7 @@ let main argv =
         "( )"
         "'\\n'"
         "a b c d"
+        "{a b c;}"
         "(abc def gfhi)"
         "(abc123 d045ef gf.hi)"
         "123 () 456 a b 123.hh !hello $bla%bla()aha"
@@ -235,6 +251,8 @@ let main argv =
         "false"
         "true"
         "true(false)"
+        "hello { a b c d; e f g; 1 2 3; }"
+        "{ a b c d; }"
     |]
     |> Array.iter
         (fun e ->
