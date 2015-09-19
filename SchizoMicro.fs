@@ -8,6 +8,7 @@ type Exp =
     | EReal64       of double
     | ESymbol       of string
     | EList         of Exp list
+    | ESequence     of Exp list list
     | ETuple        of Exp list
     | Application   of Exp * Exp list
     | NativeLambda  of NativeCall
@@ -147,8 +148,14 @@ let rec readListOfList splitterChar endingChar (endWithSplitter: bool) (boxFunc:
         let tok, nextList = readList [] str
         readListOfList splitterChar endingChar endWithSplitter boxFunc (tok :: acc) nextList
 
+and readSequence    =
+    let convert (el: Exp list) : Exp =
+        el
+        |> List.map(function | EList l -> l | _ -> failwith "unreachable")
+        |> ESequence
 
-and readSequence    = readListOfList ';' '}' true  EList
+    readListOfList ';' '}' true convert
+
 and readTuple       = readListOfList ',' ')' false ETuple
 
 and nextToken (str: Exp list) : Exp * Exp list =
