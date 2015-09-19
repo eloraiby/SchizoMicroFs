@@ -2,21 +2,21 @@
 
 type Exp =
     | EUnit
-    | EBoolean  of bool
-    | EChar     of char
-    | EInt64    of int64
-    | EReal64   of double
-    | ESymbol   of string
-    | EList     of Exp list
-    | ETuple    of Exp list
+    | EBoolean      of bool
+    | EChar         of char
+    | EInt64        of int64
+    | EReal64       of double
+    | ESymbol       of string
+    | EList         of Exp list
+    | ETuple        of Exp list
     | Application   of Exp * Exp list
     | NativeLambda  of NativeCall
     | NativeMacro   of NativeCall
-    | Lambda    of NormalCall
-    | Macro     of NormalCall
+    | Lambda        of NormalCall
+    | Macro         of NormalCall
     | Environment   of Map<string, Exp>
     | Continuation  of Map<string, Exp> * Exp
-    | Exception of Exp
+    | Exception     of Exp
 
 
 and NativeCall = {
@@ -147,18 +147,17 @@ let rec readListOfList splitterChar endingChar (endWithSplitter: bool) (boxFunc:
         let tok, nextList = readList [] str
         readListOfList splitterChar endingChar endWithSplitter boxFunc (tok :: acc) nextList
 
-// read simplified list
-and readSL    = readListOfList ';' '}' true  EList
 
-and readTuple = readListOfList ',' ')' false ETuple
+and readSequence    = readListOfList ';' '}' true  EList
+and readTuple       = readListOfList ',' ')' false ETuple
 
 and nextToken (str: Exp list) : Exp * Exp list =
     let str = skipWS str
     match str with
-    | EChar '\'' :: t -> readChar      t
-    | EChar '"'  :: t -> readString [] t  // "
-    | EChar '('  :: t -> readTuple  [] t
-    | EChar '{'  :: t -> readSL     [] t
+    | EChar '\'' :: t -> readChar          t
+    | EChar '"'  :: t -> readString     [] t  // "
+    | EChar '('  :: t -> readTuple      [] t
+    | EChar '{'  :: t -> readSequence   [] t
     | EChar sign :: EChar ch :: t when (sign = '+' || sign = '-') && isDigit ch -> readNumber str
     | EChar ch   :: t when isDigit ch -> readNumber str
     | EChar ch   :: t when isAlpha ch  || isSpecial ch -> readSymbol [] str
