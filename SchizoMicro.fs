@@ -1,7 +1,6 @@
 ﻿open System
 
 type Exp =
-    | EUnit
     | EBoolean      of bool
     | EChar         of char
     | EInt64        of int64
@@ -187,7 +186,6 @@ with
 
         let rec evalCell (env: Map<string, Exp>) c =
             match c with
-            | EUnit
             | EBoolean  _
             | EChar     _
             | EInt64    _
@@ -221,7 +219,7 @@ with
                 | _ -> Exception ("unsupported" |> Exp.fromString)
 
         and evalArray env (l: Exp[]) =
-            let arr = Array.init l.Length (fun _ -> EUnit)
+            let arr = Array.init l.Length (fun _ -> EList [])
             let rec loop i =
                 if i = l.Length
                 then ()
