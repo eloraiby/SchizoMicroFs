@@ -7,9 +7,9 @@ type Exp =
     | EReal64       of double
     | ESymbol       of string
     | EList         of Exp list
-    | ESequence     of Exp list list
+    | ESequence     of Exp list
     | ETuple        of Exp list
-    | Application   of Exp * Exp list
+    | EApplication  of Exp * Exp list
     | NativeLambda  of NativeCall
     | NativeMacro   of NativeCall
     | Lambda        of NormalCall
@@ -150,7 +150,9 @@ let rec readListOfList splitterChar endingChar (endWithSplitter: bool) (boxFunc:
 and readSequence    =
     let convert (el: Exp list) : Exp =
         el
-        |> List.map(function | EList l -> l | _ -> failwith "unreachable")
+        |> List.map(function
+            | EList (h :: t) -> EApplication (h, t)
+            | _ -> failwith "unreachable")
         |> ESequence
 
     readListOfList ';' '}' true convert
@@ -182,57 +184,58 @@ type Exp
 with
     static member fromString(str: string) = str |> Seq.toList |> List.map EChar |> EList
 
-    member x.Eval (env: Map<string, Exp>) =
+//    member x.Eval (env: Map<string, Exp>) =
 
-        let rec evalCell (env: Map<string, Exp>) c =
-            match c with
-            | EBoolean  _
-            | EChar     _
-            | EInt64    _
-            | EReal64   _
-            | Exception _
-            | Environment   _
-            | NativeLambda  _
-            | NativeMacro   _
-            | Lambda    _
-            | Macro     _   -> x
-            | ESymbol  s    ->
-                match env.TryFind s with
-                | Some c -> evalCell env c
-                | None   -> Exception ((sprintf "unable to find symbol %s" s) |> Exp.fromString)
-           
-            | Continuation  (env, c)    -> evalCell env c
-            | EList     (h :: t)  ->
-                match evalCell env h with
-                | NativeLambda { ArgCount = argc; FFI = ffi } ->
-                    let args = t |> Array.ofList
-                    if argc <> args.Length
-                    then Exception ((sprintf "native lambda requires %d arguments" argc) |> Exp.fromString)
-                    else ffi (env, evalArray env args)
+let rec evalCell (env: Map<string, Exp>) c =
+    match c with
+    | EBoolean  _
+    | EChar     _
+    | EInt64    _
+    | EReal64   _
+    | Exception _
+    | Environment   _
+    | NativeLambda  _
+    | NativeMacro   _
+    | Lambda    _
+    | EList     _
+    | Macro     _   -> c
+    | ESymbol  s    ->
+        match env.TryFind s with
+        | Some c -> evalCell env c
+        | None   -> Exception ((sprintf "unable to find symbol %s" s) |> Exp.fromString)
+    | EApplication (op, opnds) -> apply env op opnds
+    | Continuation  (env, c)    -> evalCell env c
+    | _ -> Exception ("unsupported" |> Exp.fromString)
 
-                | NativeMacro { ArgCount = argc; FFI = ffi } ->
-                    let args = t |> Array.ofList
-                    if argc <> args.Length
-                    then Exception ((sprintf "native macro requires %d arguments" argc) |> Exp.fromString)
-                    else ffi (env, args)
+and evalList env (l: Exp list) =
+    let arr = Array.init l.Length (fun _ -> EList [])
+    let rec loop i =
+        if i = l.Length
+        then ()
+        else
+            arr.[i] <- evalCell env l.[i]
+            match arr.[i] with
+            | Exception _ -> ()
+            | _           -> loop (i + 1)
+    loop 0
+    arr
 
-                | _ -> Exception ("unsupported" |> Exp.fromString)
+   
+and apply (env: Map<string, Exp>) (operator: Exp) (operands: Exp list) =
+    match operator with
+    | EList (h :: t)  ->
+        match evalCell env h with
+        | NativeLambda { ArgCount = argc; FFI = ffi } ->
+            let args = t
+            if argc <> args.Length
+            then Exception ((sprintf "native lambda requires %d arguments" argc) |> Exp.fromString)
+            else ffi (env, evalList env args)
 
-        and evalArray env (l: Exp[]) =
-            let arr = Array.init l.Length (fun _ -> EList [])
-            let rec loop i =
-                if i = l.Length
-                then ()
-                else
-                    arr.[i] <- evalCell env l.[i]
-                    match arr.[i] with
-                    | Exception _ -> ()
-                    | _           -> loop (i + 1)
-            loop 0
-            arr
-
-        evalCell env x
-           
+        | NativeMacro { ArgCount = argc; FFI = ffi } ->
+            let args = t |> Array.ofList
+            if argc <> args.Length
+            then Exception ((sprintf "native macro requires %d arguments" argc) |> Exp.fromString)
+            else ffi (env, args)       
 
        
 [<EntryPoint>]
