@@ -1,15 +1,21 @@
 ﻿open System
 
+type SplitterRequirement =
+    | MiddleTail
+    | OptionalTail
+    | MiddleOnly
+
 type Exp =
-    | EBoolean      of bool
+    | EBoolean      of bool     // true | false
     | EChar         of char
-    | EInt64        of int64
+    | EInt64        of int64    
     | EReal64       of double
     | ESymbol       of string
-    | EList         of Exp list
-    | ESequence     of Exp list
-    | ETuple        of Exp list
-    | EApplication  of Exp * Exp list
+    | EList         of Exp list // [ ... ; ... ]
+    | ESequence     of Exp list // { ... ; ... ; }
+    | ETuple        of Exp list // ( ... , ... )
+    | EApplication  of Exp * Exp list   // (sym | app) exp exp ...
+
     | NativeLambda  of NativeCall
     | NativeMacro   of NativeCall
     | Lambda        of NormalCall
@@ -129,7 +135,19 @@ let rec skipWS (str: Exp list) : Exp list =
     | EChar ch :: t when isWS ch -> skipWS t
     | _ -> str
 
-let rec readListOfList splitterChar endingChar (endWithSplitter: bool) (boxFunc: Exp list -> Exp) (acc: Exp list) (str: Exp list) =
+let reduceList (el: Exp list) : Exp =
+    match el with
+    |  h :: [] -> h
+    |  h :: t  -> EApplication (h, t)
+    | _ -> failwith "unreachable"
+
+let rec reduceTuple (e: Exp) =
+    match e with
+    | ETuple (h :: []) -> reduceTuple h
+    | _ -> e
+
+
+let rec readListOfExp splitterChar endingChar (splitterReq: SplitterRequirement) (boxFunc: Exp list -> Exp) (acc: Exp list) (str: Exp list) =
     let str = skipWS str
     match str with
     | []                                 -> failwith (sprintf "simplified list doesn't have an end '%c'" endingChar)
@@ -137,27 +155,28 @@ let rec readListOfList splitterChar endingChar (endWithSplitter: bool) (boxFunc:
     | _ ->
         let rec readList (acc: Exp list) (str: Exp list) : Exp * Exp list =
             let str = skipWS str
-            match str with
-            | []                                                        -> failwith (sprintf "list doesn't have an end '%c'" endingChar)
-            | EChar ch :: t when ch = endingChar && endWithSplitter     -> failwith (sprintf "should have '%c' before having '%c'" splitterChar endingChar)
-            | EChar ch :: t when ch = endingChar && not endWithSplitter -> EList (acc |> List.rev), str
-            | EChar ch :: t when ch = splitterChar                      -> EList (acc |> List.rev), t
+            match str, splitterReq with
+            | [], _                                                     -> failwith (sprintf "list doesn't have an end '%c'" endingChar)
+            | EChar ch :: t, MiddleTail when ch = endingChar            -> failwith (sprintf "should have '%c' before having '%c'" splitterChar endingChar)
+            | EChar ch :: t, _ when ch = endingChar                     -> (acc |> List.rev |> reduceList), str
+            | EChar ch :: t, MiddleOnly when ch = splitterChar          ->
+                let str2 = skipWS t
+                match str2 with
+                | EChar ch :: t when ch = endingChar                    -> failwith (sprintf "shouldn't have '%c' before '%c'" splitterChar endingChar)
+                | _                                                     -> (acc |> List.rev |> reduceList), t
+
+            | EChar ch :: t, _ when ch = splitterChar                   -> (acc |> List.rev |> reduceList), t
             | _                                                         -> let tok, nextList = nextToken str in readList (tok :: acc) nextList
 
         let tok, nextList = readList [] str
-        readListOfList splitterChar endingChar endWithSplitter boxFunc (tok :: acc) nextList
+        readListOfExp splitterChar endingChar splitterReq boxFunc (tok :: acc) nextList
 
-and readSequence    =
-    let convert (el: Exp list) : Exp =
-        el
-        |> List.map(function
-            | EList (h :: t) -> EApplication (h, t)
-            | _ -> failwith "unreachable")
-        |> ESequence
 
-    readListOfList ';' '}' true convert
+and readSequence    = readListOfExp ';' '}' MiddleTail ESequence
 
-and readTuple       = readListOfList ',' ')' false ETuple
+and readTuple       = readListOfExp ',' ')' MiddleOnly (ETuple >> reduceTuple)
+
+and readList        = readListOfExp ';' ']' OptionalTail EList
 
 and nextToken (str: Exp list) : Exp * Exp list =
     let str = skipWS str
@@ -166,6 +185,7 @@ and nextToken (str: Exp list) : Exp * Exp list =
     | EChar '"'  :: t -> readString     [] t  // "
     | EChar '('  :: t -> readTuple      [] t
     | EChar '{'  :: t -> readSequence   [] t
+    | EChar '['  :: t -> readList       [] t
     | EChar sign :: EChar ch :: t when (sign = '+' || sign = '-') && isDigit ch -> readNumber str
     | EChar ch   :: t when isDigit ch -> readNumber str
     | EChar ch   :: t when isAlpha ch  || isSpecial ch -> readSymbol [] str
@@ -222,20 +242,18 @@ and evalList env (l: Exp list) =
 
    
 and apply (env: Map<string, Exp>) (operator: Exp) (operands: Exp list) =
-    match operator with
-    | EList (h :: t)  ->
-        match evalCell env h with
-        | NativeLambda { ArgCount = argc; FFI = ffi } ->
-            let args = t
-            if argc <> args.Length
-            then Exception ((sprintf "native lambda requires %d arguments" argc) |> Exp.fromString)
-            else ffi (env, evalList env args)
+    match evalCell env operator with
+    | NativeLambda { ArgCount = argc; FFI = ffi } ->
+        let args = operands
+        if argc <> args.Length
+        then Exception ((sprintf "native lambda requires %d arguments" argc) |> Exp.fromString)
+        else ffi (env, evalList env args)
 
-        | NativeMacro { ArgCount = argc; FFI = ffi } ->
-            let args = t |> Array.ofList
-            if argc <> args.Length
-            then Exception ((sprintf "native macro requires %d arguments" argc) |> Exp.fromString)
-            else ffi (env, args)       
+    | NativeMacro { ArgCount = argc; FFI = ffi } ->
+        let args = operands |> Array.ofList
+        if argc <> args.Length
+        then Exception ((sprintf "native macro requires %d arguments" argc) |> Exp.fromString)
+        else ffi (env, args)       
 
        
 [<EntryPoint>]
@@ -260,6 +278,11 @@ let main argv =
         "true(false)"
         "hello { a b c d; e f g; 1 2 3; }"
         "{ a b c d; }"
+        "(1, 2, 3) (1) (ab cd, defg)"
+        "(1, 2, 3) (4, (6, 7)) (ab cd, defg)"
+        "[1]"
+        "[1; 2; 3; ab cd; (1, 2); (1);]"
+        "[1; 2; 3; ab cd; (1, 2); (1); []]"
     |]
     |> Array.iter
         (fun e ->
