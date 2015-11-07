@@ -137,9 +137,10 @@ let rec skipWS (str: Exp list) : Exp list =
 
 let reduceList (el: Exp list) : Exp =
     match el with
-    |  h :: [] -> h
-    |  h :: t  -> EApplication (h, t)
-    | _ -> failwith "unreachable"
+    | h :: [] -> h
+    | ESymbol s :: t  -> EApplication (ESymbol s, t)
+    | EApplication (h, t) :: tl  -> EApplication (EApplication (h, t), tl)
+    | _ -> failwith "Expression list is not an application"
 
 let rec reduceTuple (e: Exp) =
     match e with
@@ -191,14 +192,16 @@ and nextToken (str: Exp list) : Exp * Exp list =
     | EChar ch   :: t when isAlpha ch  || isSpecial ch -> readSymbol [] str
     | _ -> failwith "ill formed S-Expression"
 
-let parse (str: Exp list) : Exp list =
+let parse (str: Exp list) : Exp =
     let rec loop (acc: Exp list) (str: Exp list) : Exp list =
         match str with
         | [] -> List.rev acc
         | _ ->
             let tok, nextList = nextToken str
             loop (tok :: acc) nextList
+    
     loop [] str
+    |> reduceList
 
 type Exp
 with
@@ -259,7 +262,6 @@ and apply (env: Map<string, Exp>) (operator: Exp) (operands: Exp list) =
 [<EntryPoint>]
 let main argv =
     [|
-        ""
         "'c'"
         "123"
         "0"
@@ -271,15 +273,15 @@ let main argv =
         "{a b c;}"
         "(abc def gfhi)"
         "(abc123 d045ef gf.hi)"
-        "123 () 456 a b 123.hh !hello $bla%bla()aha"
-        "(a b (10 12 cd) (10 11 12))"
+        "(s 123) () 456 a b 123.hh !hello $bla%bla()aha"
+        "(a b (c 10 12 de) (f 10 11 12))"
         "false"
         "true"
-        "true(false)"
-        "hello { a b c d; e f g; 1 2 3; }"
+        "d true(false)"
+        "hello { a b c d; e f g; 1; 2; 3; }"
         "{ a b c d; }"
-        "(1, 2, 3) (1) (ab cd, defg)"
-        "(1, 2, 3) (4, (6, 7)) (ab cd, defg)"
+        "d (1, 2, 3) (1) (ab cd, defg)"
+        "e (1, 2, 3) (4, (6, 7)) (ab cd, defg)"
         "[1]"
         "[1; 2; 3; ab cd; (1, 2); (1);]"
         "[1; 2; 3; ab cd; (1, 2); (1); []]"
