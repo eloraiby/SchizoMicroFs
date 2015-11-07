@@ -16,24 +16,11 @@ type Exp =
     | ETuple        of Exp list // ( ... , ... )
     | EApplication  of Exp * Exp list   // (sym | app) exp exp ...
 
-    | NativeLambda  of NativeCall
-    | NativeMacro   of NativeCall
-    | Lambda        of NormalCall
-    | Macro         of NormalCall
+    | NativeSynTran of (Map<string, Exp> * Exp list -> Exp) // native syntax transformer
+    | SynTran       of Exp list // interpreted syntax transformer
     | Environment   of Map<string, Exp>
-    | Continuation  of Map<string, Exp> * Exp
     | Exception     of Exp
 
-
-and NativeCall = {
-    ArgCount    : int
-    FFI         : Map<string, Exp> * Exp[] -> Exp
-}
-
-and NormalCall = {
-    Args        : string[]
-    Body        : Exp[]
-}
 
 and DebugInfo = {
     Line        : int
@@ -217,17 +204,14 @@ let rec evalCell (env: Map<string, Exp>) c =
     | EReal64   _
     | Exception _
     | Environment   _
-    | NativeLambda  _
-    | NativeMacro   _
-    | Lambda    _
-    | EList     _
-    | Macro     _   -> c
+    | NativeSynTran _
+    | SynTran   _
+    | EList     _   -> c
     | ESymbol  s    ->
         match env.TryFind s with
         | Some c -> evalCell env c
         | None   -> Exception ((sprintf "unable to find symbol %s" s) |> Exp.fromString)
     | EApplication (op, opnds) -> apply env op opnds
-    | Continuation  (env, c)    -> evalCell env c
     | _ -> Exception ("unsupported" |> Exp.fromString)
 
 and evalList env (l: Exp list) =
@@ -246,17 +230,12 @@ and evalList env (l: Exp list) =
    
 and apply (env: Map<string, Exp>) (operator: Exp) (operands: Exp list) =
     match evalCell env operator with
-    | NativeLambda { ArgCount = argc; FFI = ffi } ->
-        let args = operands
-        if argc <> args.Length
-        then Exception ((sprintf "native lambda requires %d arguments" argc) |> Exp.fromString)
-        else ffi (env, evalList env args)
+    | NativeSynTran ffi -> ffi (env, operands)
 
-    | NativeMacro { ArgCount = argc; FFI = ffi } ->
-        let args = operands |> Array.ofList
-        if argc <> args.Length
-        then Exception ((sprintf "native macro requires %d arguments" argc) |> Exp.fromString)
-        else ffi (env, args)       
+    | SynTran el -> failwith "not implemented"
+
+    | _ -> failwith "invalid application"
+      
 
        
 [<EntryPoint>]
