@@ -17,7 +17,7 @@ type Exp =
     | EApplication  of Exp * Exp list   // (sym | app) exp exp ...
 
     | NativeSynTran of (Map<string, Exp> * Exp list -> Exp) // native syntax transformer
-    | SynTran       of Exp list // interpreted syntax transformer
+    | SynTran       of string list * Exp list // interpreted syntax transformer
     | Environment   of Map<string, Exp>
     | Exception     of Exp
 
@@ -196,6 +196,18 @@ with
 
 //    member x.Eval (env: Map<string, Exp>) =
 
+type List<'T>
+with
+    static member splitAt (pos: int) (l: List<'T>) =
+        let _, hl, tl =
+            l
+            |> List.fold(fun (i: int, hl: List<'T>, tl: List<'T>) e ->
+                if i < pos
+                then (i + 1, e :: hl, tl)
+                else (i + 1, hl, e :: tl)) (0, [], [])
+        hl |> List.rev,
+        tl |> List.rev
+
 let rec evalCell (env: Map<string, Exp>) c =
     match c with
     | EBoolean  _
@@ -213,28 +225,36 @@ let rec evalCell (env: Map<string, Exp>) c =
         | None   -> Exception ((sprintf "unable to find symbol %s" s) |> Exp.fromString)
     | EApplication (op, opnds) -> apply env op opnds
     | _ -> Exception ("unsupported" |> Exp.fromString)
-
-and evalList env (l: Exp list) =
-    let arr = Array.init l.Length (fun _ -> EList [])
-    let rec loop i =
-        if i = l.Length
-        then ()
-        else
-            arr.[i] <- evalCell env l.[i]
-            match arr.[i] with
-            | Exception _ -> ()
-            | _           -> loop (i + 1)
-    loop 0
-    arr
-
-   
+  
 and apply (env: Map<string, Exp>) (operator: Exp) (operands: Exp list) =
     match evalCell env operator with
     | NativeSynTran ffi -> ffi (env, operands)
 
-    | SynTran el -> failwith "not implemented"
+    | SynTran (args, el) ->
+        let newEnv =
+            match args.Length, operands.Length with
+            | al, ol when al > ol -> failwith (sprintf "macro requires at least %d arguments, got %d!" args.Length operands.Length)
+            | al, ol when al = ol ->
+                operands
+                |> List.zip args
+                |> List.fold (fun (ne: Map<string, Exp>) (k, v) -> ne.Add (k, v)) env
+            | al, ol when al < ol ->    // split operands into two lists, the tail list is then bound to the last argument
+                let oh, ot = operands |> List.splitAt (args.Length - 1)
+                let remappedOperands = EList ot :: (oh |> List.rev)
+                remappedOperands
+                |> List.zip args
+                |> List.fold (fun ne kv -> ne.Add kv) env
+            | _ -> failwith "unreachable" 
 
-    | _ -> failwith "invalid application"
+        let _, retVal =
+            el
+            |> List.fold (fun (env, rv) e ->
+                match evalCell env e with
+                | Environment ne -> ne, (Exception <| Exp.fromString "Last expression cannot be an environment expansion")
+                | rv -> env, rv) (env, EList [])
+        retVal
+
+    | _ -> EApplication (operator, operands)    // syntax could not be expanded anymore, return it as is
       
 
        
