@@ -1,4 +1,21 @@
-﻿open System
+﻿//
+// SchizoMicro F# Referemce Compiler
+// Copyright (C) 2014-2015  Wael El Oraiby
+// 
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+// 
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+// 
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//
+open System
 
 type SplitterRequirement =
     | MiddleTail
@@ -16,9 +33,13 @@ type Exp =
     | ETuple        of Exp list // ( ... , ... )
     | EApplication  of Exp * Exp list   // (sym | app) exp exp ...
 
-    | NativeSynTran of (Map<string, Exp> * Exp list -> Exp) // native syntax transformer
-    | SynTran       of string list * Exp list // interpreted syntax transformer
-    | Environment   of Map<string, Exp>
+    | UnaryOp       of string * Exp * Exp
+    | BinaryOp      of string * Exp * Exp
+
+    | NativeMacro   of (Environment * Exp list -> Exp) // native syntax transformer
+    | Macro         of string list * Exp list // interpreted syntax transformer
+
+    | Environment   of Environment // only native macros can export environments
     | Exception     of Exp
 
 
@@ -26,6 +47,17 @@ and DebugInfo = {
     Line        : int
     Offset      : int
 }
+
+and Environment = {
+    SymbolMap   : Map<string, Exp>
+    UnaryOps    : Map<string, int>
+    BinaryOps   : Map<string, int>
+}
+
+type Environment
+with
+    member x.TryFindSymbol s    = x.SymbolMap.TryFind s
+    member x.AddSymbol (s, v)   = { x with SymbolMap = x.SymbolMap.Add (s, v) }
 
 let isAlpha ch =
     if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
@@ -177,7 +209,7 @@ and nextToken (str: Exp list) : Exp * Exp list =
     | EChar sign :: EChar ch :: t when (sign = '+' || sign = '-') && isDigit ch -> readNumber str
     | EChar ch   :: t when isDigit ch -> readNumber str
     | EChar ch   :: t when isAlpha ch  || isSpecial ch -> readSymbol [] str
-    | _ -> failwith "ill formed S-Expression"
+    | _ -> failwith "ill formed Schizo Expression"
 
 let parse (str: Exp list) : Exp =
     let rec loop (acc: Exp list) (str: Exp list) : Exp list =
@@ -208,7 +240,7 @@ with
         hl |> List.rev,
         tl |> List.rev
 
-let rec evalCell (env: Map<string, Exp>) c =
+let rec evalCell (env: Environment) c =
     match c with
     | EBoolean  _
     | EChar     _
@@ -216,34 +248,36 @@ let rec evalCell (env: Map<string, Exp>) c =
     | EReal64   _
     | Exception _
     | Environment   _
-    | NativeSynTran _
-    | SynTran   _
+    | NativeMacro   _
+    | Macro     _
+    | UnaryOp   _
+    | BinaryOp  _
     | EList     _   -> c
     | ESymbol  s    ->
-        match env.TryFind s with
+        match env.TryFindSymbol s with
         | Some c -> evalCell env c
         | None   -> Exception ((sprintf "unable to find symbol %s" s) |> Exp.fromString)
     | EApplication (op, opnds) -> apply env op opnds
     | _ -> Exception ("unsupported" |> Exp.fromString)
   
-and apply (env: Map<string, Exp>) (operator: Exp) (operands: Exp list) =
+and apply (env: Environment) (operator: Exp) (operands: Exp list) =
     match evalCell env operator with
-    | NativeSynTran ffi -> ffi (env, operands)
+    | NativeMacro ffi -> ffi (env, operands)
 
-    | SynTran (args, el) ->
+    | Macro (args, el) ->
         let newEnv =
             match args.Length, operands.Length with
             | al, ol when al > ol -> failwith (sprintf "macro requires at least %d arguments, got %d!" args.Length operands.Length)
             | al, ol when al = ol ->
                 operands
                 |> List.zip args
-                |> List.fold (fun (ne: Map<string, Exp>) (k, v) -> ne.Add (k, v)) env
+                |> List.fold (fun (ne: Environment) (k, v) -> ne.AddSymbol (k, v)) env
             | al, ol when al < ol ->    // split operands into two lists, the tail list is then bound to the last argument
                 let oh, ot = operands |> List.splitAt (args.Length - 1)
                 let remappedOperands = EList ot :: (oh |> List.rev)
                 remappedOperands
                 |> List.zip args
-                |> List.fold (fun ne kv -> ne.Add kv) env
+                |> List.fold (fun ne kv -> ne.AddSymbol kv) env
             | _ -> failwith "unreachable" 
 
         let _, retVal =
