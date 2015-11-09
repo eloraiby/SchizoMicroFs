@@ -17,47 +17,16 @@
 //
 open System
 
+open SchizoExp
+open SchizoParser
+
 type SplitterRequirement =
     | MiddleTail
     | OptionalTail
     | MiddleOnly
 
-type Exp =
-    | EBoolean      of bool     // true | false
-    | EChar         of char
-    | EInt64        of int64    
-    | EReal64       of double
-    | ESymbol       of string
-    | EList         of Exp list // [ ... ; ... ]
-    | ESequence     of Exp list // { ... ; ... ; }
-    | ETuple        of Exp list // ( ... , ... )
-    | EApplication  of Exp * Exp list   // (sym | app) exp exp ...
-
-    | UnaryOp       of string * Exp * Exp
-    | BinaryOp      of string * Exp * Exp
-
-    | NativeMacro   of (Environment * Exp list -> Exp) // native syntax transformer
-    | Macro         of string list * Exp list // interpreted syntax transformer
-
-    | Environment   of Environment // only native macros can export environments
-    | Exception     of Exp
 
 
-and DebugInfo = {
-    Line        : int
-    Offset      : int
-}
-
-and Environment = {
-    SymbolMap   : Map<string, Exp>
-    UnaryOps    : Map<string, int>
-    BinaryOps   : Map<string, int>
-}
-
-type Environment
-with
-    member x.TryFindSymbol s    = x.SymbolMap.TryFind s
-    member x.AddSymbol (s, v)   = { x with SymbolMap = x.SymbolMap.Add (s, v) }
 
 let isAlpha ch =
     if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
@@ -117,6 +86,16 @@ let rec readSymbol (acc: Exp list) (str: Exp list) : Exp * Exp list =
             | _ -> ESymbol sym
         sym, str    // anything else, just bail
 
+//
+// floating point grammar
+// D   [0-9]
+// E   ([Ee][+-]?{D}+)
+// FS  (f|F)
+//
+// {D}+{E}{FS}?				
+// {D}*"."{D}+{E}?{FS}?		
+// {D}+"."{E}?{FS}?			
+//
 let readNumber (str: Exp list) : Exp * Exp list=
     let rec readInt (acc: Exp list) (str: Exp list) =
         match str with
@@ -128,6 +107,10 @@ let readNumber (str: Exp list) : Exp * Exp list=
         | EChar '+' :: t -> let i, nextList = readInt [] t in EChar '+' :: i, nextList
         | EChar '-' :: t -> let i, nextList = readInt [] t in EChar '-' :: i, nextList
         | _ -> readInt [] str
+
+//    match integral, nextList with
+//    | [], EChar '.' :: t ->
+//        let decimal = readInt [] t
 
 //    match nextList with
 //    | '.' :: t ->
@@ -222,74 +205,6 @@ let parse (str: Exp list) : Exp =
     loop [] str
     |> reduceList
 
-type Exp
-with
-    static member fromString(str: string) = str |> Seq.toList |> List.map EChar |> EList
-
-//    member x.Eval (env: Map<string, Exp>) =
-
-type List<'T>
-with
-    static member splitAt (pos: int) (l: List<'T>) =
-        let _, hl, tl =
-            l
-            |> List.fold(fun (i: int, hl: List<'T>, tl: List<'T>) e ->
-                if i < pos
-                then (i + 1, e :: hl, tl)
-                else (i + 1, hl, e :: tl)) (0, [], [])
-        hl |> List.rev,
-        tl |> List.rev
-
-let rec evalCell (env: Environment) c =
-    match c with
-    | EBoolean  _
-    | EChar     _
-    | EInt64    _
-    | EReal64   _
-    | Exception _
-    | Environment   _
-    | NativeMacro   _
-    | Macro     _
-    | UnaryOp   _
-    | BinaryOp  _
-    | EList     _   -> c
-    | ESymbol  s    ->
-        match env.TryFindSymbol s with
-        | Some c -> evalCell env c
-        | None   -> Exception ((sprintf "unable to find symbol %s" s) |> Exp.fromString)
-    | EApplication (op, opnds) -> apply env op opnds
-    | _ -> Exception ("unsupported" |> Exp.fromString)
-  
-and apply (env: Environment) (operator: Exp) (operands: Exp list) =
-    match evalCell env operator with
-    | NativeMacro ffi -> ffi (env, operands)
-
-    | Macro (args, el) ->
-        let newEnv =
-            match args.Length, operands.Length with
-            | al, ol when al > ol -> failwith (sprintf "macro requires at least %d arguments, got %d!" args.Length operands.Length)
-            | al, ol when al = ol ->
-                operands
-                |> List.zip args
-                |> List.fold (fun (ne: Environment) (k, v) -> ne.AddSymbol (k, v)) env
-            | al, ol when al < ol ->    // split operands into two lists, the tail list is then bound to the last argument
-                let oh, ot = operands |> List.splitAt (args.Length - 1)
-                let remappedOperands = EList ot :: (oh |> List.rev)
-                remappedOperands
-                |> List.zip args
-                |> List.fold (fun ne kv -> ne.AddSymbol kv) env
-            | _ -> failwith "unreachable" 
-
-        let _, retVal =
-            el
-            |> List.fold (fun (env, rv) e ->
-                match evalCell env e with
-                | Environment ne -> ne, (Exception <| Exp.fromString "Last expression cannot be an environment expansion")
-                | rv -> env, rv) (env, EList [])
-        retVal
-
-    | _ -> EApplication (operator, operands)    // syntax could not be expanded anymore, return it as is
-      
 
        
 [<EntryPoint>]

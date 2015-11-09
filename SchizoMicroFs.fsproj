@@ -54,6 +54,8 @@
   </Choose>
   <Import Project="$(FSharpTargetsPath)" />
   <ItemGroup>
+    <Compile Include="SchizoExp.fs" />
+    <Compile Include="SchizoParser.fs" />
     <Compile Include="SchizoMicro.fs" />
     <None Include="App.config" />
   </ItemGroup>
