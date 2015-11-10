@@ -19,7 +19,7 @@
 //
 // This is the schizo expression interpreter (Macro substitution system)
 //
-module SchizoExp
+module Schizo.Expression
 
 type List<'T>
 with
@@ -53,14 +53,15 @@ type Exp =
 
 
 and DebugInfo = {
-    Line        : int
-    Offset      : int
+    Line            : int
+    Offset          : int
 }
 
 and Environment = {
-    SymbolMap   : Map<string, Exp>
-    UnaryOps    : Map<string, int>
-    BinaryOps   : Map<string, int>
+    ImportedSymbols : Map<string, Exp>
+    SymbolMap       : Map<string, Exp>
+    UnaryOps        : Map<string, int>
+    BinaryOps       : Map<string, int>
 }
 
 type Environment

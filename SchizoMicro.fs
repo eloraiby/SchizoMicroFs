@@ -17,16 +17,13 @@
 //
 open System
 
-open SchizoExp
-open SchizoParser
+open Schizo.Expression
+open Schizo.Parser
 
 type SplitterRequirement =
     | MiddleTail
     | OptionalTail
     | MiddleOnly
-
-
-
 
 let isAlpha ch =
     if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
