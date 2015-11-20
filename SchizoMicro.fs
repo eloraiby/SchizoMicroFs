@@ -20,11 +20,6 @@ open System
 open Schizo.Expression
 open Schizo.Parser
 
-type SplitterRequirement =
-    | MiddleTail
-    | OptionalTail
-    | MiddleOnly
-
 let isAlpha ch =
     if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
     then true
@@ -147,7 +142,7 @@ let rec reduceTuple (e: Exp) =
     | _ -> e
 
 
-let rec readListOfExp splitterChar endingChar (splitterReq: SplitterRequirement) (boxFunc: Exp list -> Exp) (acc: Exp list) (str: Exp list) =
+let rec readListOfExp splitterChar endingChar (boxFunc: Exp list -> Exp) (acc: Exp list) (str: Exp list) =
     let str = skipWS str
     match str with
     | []                                 -> failwith (sprintf "simplified list doesn't have an end '%c'" endingChar)
@@ -155,28 +150,24 @@ let rec readListOfExp splitterChar endingChar (splitterReq: SplitterRequirement)
     | _ ->
         let rec readList (acc: Exp list) (str: Exp list) : Exp * Exp list =
             let str = skipWS str
-            match str, splitterReq with
-            | [], _                                                     -> failwith (sprintf "list doesn't have an end '%c'" endingChar)
-            | EChar ch :: t, MiddleTail when ch = endingChar            -> failwith (sprintf "should have '%c' before having '%c'" splitterChar endingChar)
-            | EChar ch :: t, _ when ch = endingChar                     -> (acc |> List.rev |> reduceList), str
-            | EChar ch :: t, MiddleOnly when ch = splitterChar          ->
-                let str2 = skipWS t
-                match str2 with
-                | EChar ch :: t when ch = endingChar                    -> failwith (sprintf "shouldn't have '%c' before '%c'" splitterChar endingChar)
-                | _                                                     -> (acc |> List.rev |> reduceList), t
-
-            | EChar ch :: t, _ when ch = splitterChar                   -> (acc |> List.rev |> reduceList), t
+            match str with
+            | []                                                        -> failwith (sprintf "list doesn't have an end '%c'" endingChar)
+            | EChar ch :: t when ch = endingChar                        -> (acc |> List.rev |> reduceList), str
+            | EChar ch :: t when ch = splitterChar                      ->
+                match skipWS t with
+                | EChar ch :: t when ch = endingChar                    -> failwith (sprintf "simplified list ends with splitter '%c'" splitterChar)
+                | _     -> (acc |> List.rev |> reduceList), t
             | _                                                         -> let tok, nextList = nextToken str in readList (tok :: acc) nextList
 
         let tok, nextList = readList [] str
-        readListOfExp splitterChar endingChar splitterReq boxFunc (tok :: acc) nextList
+        readListOfExp splitterChar endingChar boxFunc (tok :: acc) nextList
 
 
-and readSequence    = readListOfExp ';' '}' MiddleTail ESequence
+and readSequence    = readListOfExp ';' '}' ESequence
 
-and readTuple       = readListOfExp ',' ')' MiddleOnly (ETuple >> reduceTuple)
+and readTuple       = readListOfExp ',' ')' (ETuple >> reduceTuple)
 
-and readList        = readListOfExp ';' ']' OptionalTail EList
+and readList        = readListOfExp ';' ']' EList
 
 and nextToken (str: Exp list) : Exp * Exp list =
     let str = skipWS str
@@ -215,7 +206,7 @@ let main argv =
         "( )"
         "'\\n'"
         "a b c d"
-        "{a b c;}"
+        "{a b c}"
         "(abc def gfhi)"
         "(abc123 d045ef gf.hi)"
         "(s 123) () 456 a b 123.hh !hello $bla%bla()aha"
@@ -223,12 +214,12 @@ let main argv =
         "false"
         "true"
         "d true(false)"
-        "hello { a b c d; e f g; 1; 2; 3; }"
-        "{ a b c d; }"
+        "hello { a b c d; e f g; 1; 2; 3 }"
+        "{ a b c d }"
         "d (1, 2, 3) (1) (ab cd, defg)"
         "e (1, 2, 3) (4, (6, 7)) (ab cd, defg)"
         "[1]"
-        "[1; 2; 3; ab cd; (1, 2); (1);]"
+        "[1; 2; 3; ab cd; (1, 2); (1) ]"
         "[1; 2; 3; ab cd; (1, 2); (1); []]"
     |]
     |> Array.iter
