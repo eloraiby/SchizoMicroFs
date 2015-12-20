@@ -81,12 +81,9 @@ let rec readSymbol (acc: Exp list) (str: Exp list) : Exp * Exp list =
 //
 // floating point grammar
 // D   [0-9]
-// E   ([Ee][+-]?{D}+)
-// FS  (f|F)
-//
-// {D}+{E}{FS}?				
-// {D}*"."{D}+{E}?{FS}?		
-// {D}+"."{E}?{FS}?			
+// E   ([Ee][+-]{D}+)
+//		
+// {D}+"."{D}+{E}?
 //
 let readNumber (str: Exp list) : Exp * Exp list=
     let rec readInt (acc: Exp list) (str: Exp list) =
@@ -100,23 +97,46 @@ let readNumber (str: Exp list) : Exp * Exp list=
         | EChar '-' :: t -> let i, nextList = readInt [] t in EChar '-' :: i, nextList
         | _ -> readInt [] str
 
-//    match integral, nextList with
-//    | [], EChar '.' :: t ->
-//        let decimal = readInt [] t
+    let decimal, nextList =
+        match nextList with
+        | EChar '.' :: t -> let d, nextList = readInt [] t in EChar '.' :: d, nextList
+        | _ -> [], nextList
 
-//    match nextList with
-//    | '.' :: t ->
-//        let decimal, nextList = readInt [] t
-//        match nextList with
-//        | e :: '+' :: t
-//        | e :: t when e = 'E' || e = 'e' ->
-//            let expn, nextList = readInt [] t
+    let expo, nextList =
+        match decimal, nextList with
+        | [], _ -> [], nextList
+        | _, EChar 'E' :: t
+        | _, EChar 'e' :: t ->
+            match t with
+            | EChar '+' :: t -> let i, nextList = readInt [] t in EChar 'E' :: EChar '+' :: i, nextList
+            | EChar '-' :: t -> let i, nextList = readInt [] t in EChar 'E' :: EChar '-' :: i, nextList
+            | t -> readInt [] t
+        | _, _ -> [], nextList
+        
 
-    let intstr = System.String (integral |> List.toArray |> Array.map (function | EChar ch -> ch | _ -> failwith "unreachable"))
+    match integral, decimal, expo with
+    | integral, [], _ ->
+        let intstr = System.String (integral |> List.toArray |> Array.map (function | EChar ch -> ch | _ -> failwith "unreachable"))
 
-    if intstr.Length <> 0
-    then EInt64 (Convert.ToInt64 intstr), nextList
-    else failwith "invalid number"
+        if intstr.Length <> 0
+        then EInt64 (Convert.ToInt64 intstr), nextList
+        else failwith "invalid integer number"
+
+    | integral, decimal, [] ->
+        let number =  List.append integral decimal 
+        let number = System.String (number |> List.toArray |> Array.map (function | EChar ch -> ch | _ -> failwith "unreachable"))
+
+        if number.Length <> 0
+        then EReal64 (Convert.ToDouble number), nextList
+        else failwith "invalid floating number"
+
+    | integral, decimal, expo ->
+        let number = List.append  (List.append integral decimal) expo
+        let number = System.String (number |> List.toArray |> Array.map (function | EChar ch -> ch | _ -> failwith "unreachable"))
+
+        if number.Length <> 0
+        then EReal64 (Convert.ToDouble number), nextList
+        else failwith "invalid floating number"
    
 let rec skipWS (str: Exp list) : Exp list =
     let isWS = function
@@ -201,6 +221,8 @@ let main argv =
         "'c'"
         "123"
         "0"
+        "123.4"
+        "123.4e+10"
         "symbol"
         "\"string\""
         "( )"
