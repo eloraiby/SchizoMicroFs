@@ -1,4 +1,4 @@
-﻿//
+//
 // SchizoMicro F# Referemce Compiler
 // Copyright (C) 2014-2015  Wael El Oraiby
 // 
@@ -81,8 +81,8 @@ let rec readSymbol (acc: Exp list) (str: Exp list) : Exp * Exp list =
 //
 // floating point grammar
 // D   [0-9]
-// E   ([Ee][+-]{D}+)
-//		
+// E   ([Ee][+-]?{D}+)
+//
 // {D}+"."{D}+{E}?
 //
 let readNumber (str: Exp list) : Exp * Exp list=
@@ -193,7 +193,7 @@ and nextToken (str: Exp list) : Exp * Exp list =
     let str = skipWS str
     match str with
     | EChar '\'' :: t -> readChar          t
-    | EChar '"'  :: t -> readString     [] t  // "
+    | EChar '"'  :: t -> readString     [] t // "
     | EChar '('  :: t -> readTuple      [] t
     | EChar '{'  :: t -> readSequence   [] t
     | EChar '['  :: t -> readList       [] t
@@ -213,8 +213,6 @@ let parse (str: Exp list) : Exp =
     loop [] str
     |> reduceList
 
-
-       
 [<EntryPoint>]
 let main argv =
     [|

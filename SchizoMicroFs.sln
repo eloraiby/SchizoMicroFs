@@ -1,9 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 2013
+# Visual Studio 2012
 VisualStudioVersion = 12.0.31101.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "SchizoMicroFs", "SchizoMicroFs.fsproj", "{4E90F15D-8DDD-4CC9-8496-714B9847E691}"
+Project("{4925A630-B079-445d-BCD4-3A9C94FE9307}") = "SchizoMicroFs", "SchizoMicroFs.fsproj", "{4E90F15D-8DDD-4CC9-8496-714B9847E691}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
