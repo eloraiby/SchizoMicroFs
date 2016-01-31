@@ -18,7 +18,6 @@
 open System
 
 open Schizo.Expression
-open Schizo.Parser
 
 let isAlpha ch =
     if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
@@ -114,29 +113,34 @@ let readNumber (str: Exp list) : Exp * Exp list=
         | _, _ -> [], nextList
         
 
-    match integral, decimal, expo with
-    | integral, [], _ ->
-        let intstr = System.String (integral |> List.toArray |> Array.map (function | EChar ch -> ch | _ -> failwith "unreachable"))
+    let token, nextList =
+        match integral, decimal, expo with
+        | integral, [], _ ->
+            let intstr = System.String (integral |> List.toArray |> Array.map (function | EChar ch -> ch | _ -> failwith "unreachable"))
 
-        if intstr.Length <> 0
-        then EInt64 (Convert.ToInt64 intstr), nextList
-        else failwith "invalid integer number"
+            if intstr.Length <> 0
+            then EInt64 (Convert.ToInt64 intstr), nextList
+            else failwith "invalid integer number"
 
-    | integral, decimal, [] ->
-        let number =  List.append integral decimal 
-        let number = System.String (number |> List.toArray |> Array.map (function | EChar ch -> ch | _ -> failwith "unreachable"))
+        | integral, decimal, [] ->
+            let number =  List.append integral decimal 
+            let number = System.String (number |> List.toArray |> Array.map (function | EChar ch -> ch | _ -> failwith "unreachable"))
 
-        if number.Length <> 0
-        then EReal64 (Convert.ToDouble number), nextList
-        else failwith "invalid floating number"
+            if number.Length <> 0
+            then EReal64 (Convert.ToDouble number), nextList
+            else failwith "invalid floating number"
 
-    | integral, decimal, expo ->
-        let number = List.append  (List.append integral decimal) expo
-        let number = System.String (number |> List.toArray |> Array.map (function | EChar ch -> ch | _ -> failwith "unreachable"))
+        | integral, decimal, expo ->
+            let number = List.append  (List.append integral decimal) expo
+            let number = System.String (number |> List.toArray |> Array.map (function | EChar ch -> ch | _ -> failwith "unreachable"))
 
-        if number.Length <> 0
-        then EReal64 (Convert.ToDouble number), nextList
-        else failwith "invalid floating number"
+            if number.Length <> 0
+            then EReal64 (Convert.ToDouble number), nextList
+            else failwith "invalid floating number"
+
+    match nextList with
+    | EChar ch :: l when isAlpha ch || isSpecial ch -> failwith "invalid number: followed by a alpha or special character"
+    | _ -> token, nextList
    
 let rec skipWS (str: Exp list) : Exp list =
     let isWS = function
@@ -222,6 +226,7 @@ let main argv =
         "123.4"
         "123.4e+10"
         "symbol"
+        "symbol 1 2 a 3.5 b"
         "\"string\""
         "( )"
         "'\\n'"
@@ -229,7 +234,7 @@ let main argv =
         "{a b c}"
         "(abc def gfhi)"
         "(abc123 d045ef gf.hi)"
-        "(s 123) () 456 a b 123.hh !hello $bla%bla()aha"
+        "(s 123) () 456 a b 123.0 hh !hello $bla%bla()aha"
         "(a b (c 10 12 de) (f 10 11 12))"
         "false"
         "true"

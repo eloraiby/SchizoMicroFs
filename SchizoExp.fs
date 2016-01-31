@@ -53,6 +53,7 @@ type Exp =
 
 
 and DebugInfo = {
+    Source          : string
     Line            : int
     Offset          : int
 }
