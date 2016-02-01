@@ -20,7 +20,7 @@ open System
 open Schizo.Expression
 
 let isAlpha ch =
-    if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
+    if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch = '_')
     then true
     else false
 
@@ -33,9 +33,9 @@ let isSpecial =
     function
     | '`'   | '!'   | '@'   | '#' 
     | '$'   | '%'   | '^'   | '&' 
-    | '*'   | '_'   | '-'   | '+' 
-    | '='   | '/'   | '?'   | '<' 
-    | '>'   | '|'   | '~'   | '.' -> true
+    | '*'   | '-'   | '+'   | '='
+    | '/'   | '?'   | '<'   | '>'
+    | '|'   | '~'   | '.'   | ':' -> true
     | _   -> false
 
 let readChar (str: Exp list) : Exp * Exp list =
@@ -65,18 +65,24 @@ let rec readString (acc: Exp list) (str: Exp list) : Exp * Exp list =
     | ch :: t -> readString (ch :: acc) t
     | _ -> failwith "ill formated string"
 
-let rec readSymbol (acc: Exp list) (str: Exp list) : Exp * Exp list =
+let rec readSymbolAlphaNum (acc: Exp list) (str: Exp list) : Exp * Exp list =
     match str with
-    | EChar ch :: t when isAlpha ch || isDigit ch || isSpecial ch -> readSymbol (EChar ch :: acc) t
+    | EChar ch :: t when isAlpha ch || isDigit ch -> readSymbolAlphaNum (EChar ch :: acc) t
     | _                     ->
         let sym = System.String(acc |> List.rev |> Array.ofList |> Array.map (function | EChar ch -> ch | _ -> failwith "unreachable"))
         let sym =
             match sym with
             | "true" -> EBoolean true
             | "false" -> EBoolean false
-            | _ -> ESymbol sym
+            | _ -> EIdentifier sym
         sym, str    // anything else, just bail
 
+let rec readSymbolSpecial (acc: Exp list) (str: Exp list) : Exp * Exp list =
+    match str with
+    | EChar ch :: t when isSpecial ch -> readSymbolSpecial (EChar ch :: acc) t
+    | _                     ->
+        let sym = System.String(acc |> List.rev |> Array.ofList |> Array.map (function | EChar ch -> ch | _ -> failwith "unreachable"))
+        EOperator sym, str    // anything else, just bail
 //
 // floating point grammar
 // D   [0-9]
@@ -139,7 +145,7 @@ let readNumber (str: Exp list) : Exp * Exp list=
             else failwith "invalid floating number"
 
     match nextList with
-    | EChar ch :: l when isAlpha ch || isSpecial ch -> failwith "invalid number: followed by a alpha or special character"
+    | EChar ch :: l when isAlpha ch || isSpecial ch -> failwith "invalid number: followed by a alpha or special character, separator or space is needed"
     | _ -> token, nextList
    
 let rec skipWS (str: Exp list) : Exp list =
@@ -153,10 +159,15 @@ let rec skipWS (str: Exp list) : Exp list =
     | EChar ch :: t when isWS ch -> skipWS t
     | _ -> str
 
+//
+// TODO: use environment, and check if the list contains operators. If it does, reduction
+//       should use priorities from the environment to resort the list
+//
 let reduceList (el: Exp list) : Exp =
     match el with
     | h :: [] -> h
-    | ESymbol s :: t  -> EApplication (ESymbol s, t)
+    | EIdentifier s :: t  -> EApplication (EIdentifier s, t)
+    | EOperator   s :: t  -> EApplication (EOperator   s, t) // <- This is wrong!
     | EApplication (h, t) :: tl  -> EApplication (EApplication (h, t), tl)
     | _ -> failwith "Expression list is not an application"
 
@@ -203,7 +214,8 @@ and nextToken (str: Exp list) : Exp * Exp list =
     | EChar '['  :: t -> readList       [] t
     | EChar sign :: EChar ch :: t when (sign = '+' || sign = '-') && isDigit ch -> readNumber str
     | EChar ch   :: t when isDigit ch -> readNumber str
-    | EChar ch   :: t when isAlpha ch  || isSpecial ch -> readSymbol [] str
+    | EChar ch   :: t when isAlpha ch -> readSymbolAlphaNum [] str
+    | EChar ch   :: t when isSpecial ch -> readSymbolSpecial [] str
     | _ -> failwith "ill formed Schizo Expression"
 
 let parse (str: Exp list) : Exp =
@@ -234,7 +246,7 @@ let main argv =
         "{a b c}"
         "(abc def gfhi)"
         "(abc123 d045ef gf.hi)"
-        "(s 123) () 456 a b 123.0 hh !hello $bla%bla()aha"
+        "(s 123) () 456 a b 123.0 hh !hello $bla%bla()aha::something"
         "(a b (c 10 12 de) (f 10 11 12))"
         "false"
         "true"

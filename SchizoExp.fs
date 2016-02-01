@@ -36,14 +36,12 @@ type Exp =
     | EChar         of char
     | EInt64        of int64    
     | EReal64       of double
-    | ESymbol       of string
+    | EIdentifier   of string
+    | EOperator     of string
     | EList         of Exp list // [ ... ; ... ]
     | ESequence     of Exp list // { ... ; ... ; }
     | ETuple        of Exp list // ( ... , ... )
     | EApplication  of Exp * Exp list   // (sym | app) exp exp ...
-
-    | UnaryOp       of string * Exp * Exp
-    | BinaryOp      of string * Exp * Exp
 
     | NativeMacro   of (Environment * Exp list -> Exp) // native syntax transformer
     | Macro         of string list * Exp list // interpreted syntax transformer
@@ -84,13 +82,17 @@ with
             | Environment   _
             | NativeMacro   _
             | Macro     _
-            | UnaryOp   _
-            | BinaryOp  _
             | EList     _   -> c
-            | ESymbol  s    ->
+            | EIdentifier s ->
                 match env.TryFindSymbol s with
                 | Some c -> evalCell env c
-                | None   -> Exception ((sprintf "unable to find symbol %s" s) |> Exp.fromString)
+                | None   -> c   // no binding found, return the symbol as is
+
+            | EOperator s ->
+                match env.TryFindSymbol s with
+                | Some c -> evalCell env c
+                | None   -> c   // no binding found, return the symbol as is
+
             | EApplication (op, opnds) -> apply env op opnds
             | _ -> Exception ("unsupported" |> Exp.fromString)
   
