@@ -1,6 +1,6 @@
 ﻿//
 // SchizoMicro F# Referemce Compiler
-// Copyright (C) 2014-2015  Wael El Oraiby
+// Copyright (C) 2014-2016  Wael El Oraiby
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License as published by
