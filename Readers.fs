@@ -16,7 +16,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 
-module Schizo.Tokenizer
+module Schizo.Readers
 
 open System
 open Schizo.Expression
@@ -40,21 +40,21 @@ let isSpecial =
     | '|'   | '~'   | '.'   | ':' -> true
     | _   -> false
 
-let readChar (str: Exp list) : Exp * Exp list =
+let readChar (env: Environment) (str: Exp list) : Environment * Exp * Exp list =
     match str with
     | EChar '\\' :: EChar ch :: EChar '\'' :: t ->
         match ch with
-        | 'n'  -> EChar '\n', t
-        | 'r'  -> EChar '\r', t
-        | 'a'  -> EChar '\a', t
-        | '\'' -> EChar '\'', t
+        | 'n'  -> env, EChar '\n', t
+        | 'r'  -> env, EChar '\r', t
+        | 'a'  -> env, EChar '\a', t
+        | '\'' -> env, EChar '\'', t
         | _    -> failwith (sprintf "unknown escape character %c after \\ in char" ch)
-    | EChar ch   :: EChar '\'' :: t       -> EChar ch, t
+    | EChar ch   :: EChar '\'' :: t       -> env, EChar ch, t
     | _               -> failwith "not a well formed char"
 
-let rec readString (acc: Exp list) (str: Exp list) : Exp * Exp list =
+let rec readString (env: Environment) (acc: Exp list) (str: Exp list) : Environment * Exp * Exp list =
     match str with
-    | EChar '"'  :: t -> EList (acc |> List.rev), t // "
+    | EChar '"'  :: t -> env, EList (acc |> List.rev), t // "
     | EChar '\\' :: EChar ch :: t ->
         let newCh =
             match ch with
@@ -63,28 +63,28 @@ let rec readString (acc: Exp list) (str: Exp list) : Exp * Exp list =
             | 'a'  -> '\a'
             | '\'' -> '\''
             | _    -> failwith (sprintf "unknown escape character %c after \\ in string" ch)
-        readString (EChar newCh :: acc) t
-    | ch :: t -> readString (ch :: acc) t
+        readString env (EChar newCh :: acc) t
+    | ch :: t -> readString env (ch :: acc) t
     | _ -> failwith "ill formated string"
 
-let rec readSymbolAlphaNum (acc: Exp list) (str: Exp list) : Exp * Exp list =
+let rec readSymbolAlphaNum (env: Environment) (acc: Exp list) (str: Exp list) : Environment * Exp * Exp list =
     match str with
-    | EChar ch :: t when isAlpha ch || isDigit ch -> readSymbolAlphaNum (EChar ch :: acc) t
-    | _                     ->
+    | EChar ch :: t when isAlpha ch || isDigit ch -> readSymbolAlphaNum env (EChar ch :: acc) t
+    | _ ->
         let sym = System.String(acc |> List.rev |> Array.ofList |> Array.map (function | EChar ch -> ch | _ -> failwith "unreachable"))
         let sym =
             match sym with
             | "true" -> EBoolean true
             | "false" -> EBoolean false
             | _ -> EIdentifier sym
-        sym, str    // anything else, just bail
+        env, sym, str    // anything else, just bail
 
-let rec readSymbolSpecial (acc: Exp list) (str: Exp list) : Exp * Exp list =
+let rec readSymbolSpecial (env: Environment) (acc: Exp list) (str: Exp list) : Environment * Exp * Exp list =
     match str with
-    | EChar ch :: t when isSpecial ch -> readSymbolSpecial (EChar ch :: acc) t
+    | EChar ch :: t when isSpecial ch -> readSymbolSpecial env (EChar ch :: acc) t
     | _                     ->
         let sym = System.String(acc |> List.rev |> Array.ofList |> Array.map (function | EChar ch -> ch | _ -> failwith "unreachable"))
-        EOperator sym, str    // anything else, just bail
+        env, EOperator sym, str    // anything else, just bail
 //
 // floating point grammar
 // D   [0-9]
@@ -92,7 +92,7 @@ let rec readSymbolSpecial (acc: Exp list) (str: Exp list) : Exp * Exp list =
 //
 // {D}+"."{D}+{E}?
 //
-let readNumber (str: Exp list) : Exp * Exp list=
+let readNumber (env: Environment) (str: Exp list) : Environment * Exp * Exp list=
     let rec readInt (acc: Exp list) (str: Exp list) =
         match str with
         | EChar ch :: t when isDigit ch ->  readInt (EChar ch :: acc) t
@@ -148,7 +148,7 @@ let readNumber (str: Exp list) : Exp * Exp list=
 
     match nextList with
     | EChar ch :: l when isAlpha ch || isSpecial ch -> failwith "invalid number: followed by a alpha or special character, separator or space is needed"
-    | _ -> token, nextList
+    | _ -> env, token, nextList
    
 let rec skipWS (str: Exp list) : Exp list =
     let isWS = function

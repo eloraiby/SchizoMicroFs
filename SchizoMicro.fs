@@ -15,23 +15,36 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
+module Main
 open System
 
 open Schizo.Expression
-open Schizo.Tokenizer
+open Schizo.Readers
 
-
+let splitExpList (env: Environment) (el: Exp list) : Environment * Exp list =
+    let temp, state =
+        el
+        |> List.fold(fun (temp, state) el ->
+            match el with
+            | EOperator op ->
+                match env.BinaryOps.TryFind op with
+                | Some _ -> [], EList (temp |> List.rev) :: (EOperator op) :: state
+                | _ -> el :: temp, state
+            | _ -> el :: temp, state) ([], [])
+    env, (EList (temp |> List.rev) :: state) |> List.rev
+     
 //
 // TODO: use environment, and check if the list contains operators. If it does, reduction
 //       should use priorities from the environment to resort the list
 //
-let reduceList (el: Exp list) : Exp =
+let reduceList (env: Environment) (el: Exp list) : Environment * Exp =
     match el with
-    | h :: [] -> h
-    | EIdentifier s :: t  -> EApplication (EIdentifier s, t)
-    | EOperator   s :: t  -> EApplication (EOperator   s, t) // <- This is wrong!
-    | EApplication (h, t) :: tl  -> EApplication (EApplication (h, t), tl)
-    | _ -> failwith "Expression list is not an application"
+    |                   h :: [] -> env, h
+    | EIdentifier       s :: t  -> env, EApplication (EIdentifier s, t)
+    | EOperator         s :: t  -> env, EApplication (EOperator   s, t) // <- This is wrong!
+    | EApplication (h, t) :: tl -> env, EApplication (EApplication (h, t), tl)
+    | _ ->
+        failwith "Expression list is not an application"
 
 let rec reduceTuple (e: Exp) =
     match e with
@@ -39,60 +52,61 @@ let rec reduceTuple (e: Exp) =
     | _ -> e
 
 
-let rec readListOfExp splitterChar endingChar (boxFunc: Exp list -> Exp) (acc: Exp list) (str: Exp list) =
+let rec readListOfExp (env: Environment) splitterChar endingChar (boxFunc: Exp list -> Exp) (acc: Exp list) (str: Exp list) : Environment * Exp * Exp list =
     let str = skipWS str
     match str with
     | []                                 -> failwith (sprintf "simplified list doesn't have an end '%c'" endingChar)
-    | EChar ch :: t when ch = endingChar -> (boxFunc (acc |> List.rev)), t
+    | EChar ch :: t when ch = endingChar -> let exp = (boxFunc (acc |> List.rev)) in env, exp, t
     | _ ->
-        let rec readList (acc: Exp list) (str: Exp list) : Exp * Exp list =
+        let rec readList (environment: Environment) (acc: Exp list) (str: Exp list) : Environment * Exp * Exp list =
             let str = skipWS str
             match str with
             | []                                                        -> failwith (sprintf "list doesn't have an end '%c'" endingChar)
-            | EChar ch :: t when ch = endingChar                        -> (acc |> List.rev |> reduceList), str
+            | EChar ch :: t when ch = endingChar                        -> let env, exp = (acc |> List.rev |> reduceList env) in env, exp, str
             | EChar ch :: t when ch = splitterChar                      ->
                 match skipWS t with
                 | EChar ch :: t when ch = endingChar                    -> failwith (sprintf "simplified list ends with splitter '%c'" splitterChar)
-                | _     -> (acc |> List.rev |> reduceList), t
-            | _                                                         -> let tok, nextList = nextToken str in readList (tok :: acc) nextList
+                | _     -> let env, exp = (acc |> List.rev |> reduceList env) in env, exp, t
+            | _                                                         -> let env, tok, nextList = nextToken env str in readList env (tok :: acc) nextList
 
-        let tok, nextList = readList [] str
-        readListOfExp splitterChar endingChar boxFunc (tok :: acc) nextList
+        let env, tok, nextList = readList env [] str
+        readListOfExp env splitterChar endingChar boxFunc (tok :: acc) nextList
 
 
-and readSequence    = readListOfExp ';' '}' ESequence
+and readSequence env   = readListOfExp env ';' '}' ESequence
 
-and readTuple       = readListOfExp ',' ')' (ETuple >> reduceTuple)
+and readTuple    env   = readListOfExp env ',' ')' (ETuple >> reduceTuple)
 
-and readList        = readListOfExp ';' ']' EList
+and readList     env   = readListOfExp env ';' ']' EList
 
-and nextToken (str: Exp list) : Exp * Exp list =
+and nextToken env (str: Exp list) : Environment * Exp * Exp list =
     let str = skipWS str
     match str with
-    | EChar '\'' :: t -> readChar          t
-    | EChar '"'  :: t -> readString     [] t // "
-    | EChar '('  :: t -> readTuple      [] t
-    | EChar '{'  :: t -> readSequence   [] t
-    | EChar '['  :: t -> readList       [] t
-    | EChar sign :: EChar ch :: t when (sign = '+' || sign = '-') && isDigit ch -> readNumber str
-    | EChar ch   :: t when isDigit ch -> readNumber str
-    | EChar ch   :: t when isAlpha ch -> readSymbolAlphaNum [] str
-    | EChar ch   :: t when isSpecial ch -> readSymbolSpecial [] str
+    | EChar '\'' :: t -> readChar     env    t
+    | EChar '"'  :: t -> readString   env [] t // "
+    | EChar '('  :: t -> readTuple    env [] t
+    | EChar '{'  :: t -> readSequence env [] t
+    | EChar '['  :: t -> readList     env [] t
+    | EChar sign :: EChar ch :: t when (sign = '+' || sign = '-') && isDigit ch -> readNumber env str
+    | EChar ch   :: t when isDigit ch -> readNumber env str
+    | EChar ch   :: t when isAlpha ch -> readSymbolAlphaNum env [] str
+    | EChar ch   :: t when isSpecial ch -> readSymbolSpecial env [] str
     | _ -> failwith "ill formed Schizo Expression"
 
-let parse (str: Exp list) : Exp =
-    let rec loop (acc: Exp list) (str: Exp list) : Exp list =
+let parse (env: Environment) (str: Exp list) : Environment * Exp =
+    let rec loop (env: Environment) (acc: Exp list) (str: Exp list) : Environment * Exp list =
         match str with
-        | [] -> List.rev acc
+        | [] -> env, List.rev acc
         | _ ->
-            let tok, nextList = nextToken str
-            loop (tok :: acc) nextList
+            let env, tok, nextList = nextToken env str
+            loop env (tok :: acc) nextList
     
-    loop [] str
-    |> reduceList
+    let env, expList = loop env [] str
+    expList |> reduceList env
 
 [<EntryPoint>]
 let main argv =
+    let env = Environment.empty
     [|
         "'c'"
         "123"
@@ -120,9 +134,15 @@ let main argv =
         "[1]"
         "[1; 2; 3; ab cd; (1, 2); (1) ]"
         "[1; 2; 3; ab cd; (1, 2); (1); []]"
+        "module A { funA : a -> b -> c; funB : d }"
+        "1 + 2"
+        "1 + 2 * 5"
+        "1-10/30*50"
     |]
     |> Array.iter
         (fun e ->
-            printfn "%A" (parse (e |> Seq.toList |> List.map EChar)))
+            let el =  e |> Seq.toList |> List.map EChar
+            let env, el = parse env el
+            printfn "%A" el)
 
     0 // return an integer exit code

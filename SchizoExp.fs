@@ -68,6 +68,14 @@ with
     member x.TryFindSymbol s    = x.SymbolMap.TryFind s
     member x.AddSymbol (s, v)   = { x with SymbolMap = x.SymbolMap.Add (s, v) }
 
+    static member empty = {
+        ImportedSymbols = Map.empty
+        SymbolMap       = Map.empty
+        UnaryOps        = Map.empty
+        BinaryOps       = Map.empty
+        }
+
+
 type Exp
 with
     static member fromString(str: string) = str |> Seq.toList |> List.map EChar |> EList
