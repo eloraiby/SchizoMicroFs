@@ -56,8 +56,8 @@ let rec reduceList (env: Environment) (el: Exp list) : Environment * Exp =
     if res.Length <> 0
     then
         let env, expList = splitExpList env el
-        printfn "%A" expList
-        env, EList expList
+        expList
+        |> reduceOperator env
     else
         match el with
         |                   h :: [] -> env, h
@@ -65,6 +65,18 @@ let rec reduceList (env: Environment) (el: Exp list) : Environment * Exp =
         | EOperator         s :: t  -> env, EApplication (EOperator   s, t) // <- This is wrong!
         | EApplication (h, t) :: tl -> env, EApplication (EApplication (h, t), tl)
         | _ -> failwith "Expression list is not an application"
+
+and reduceOperator (env: Environment) (el: Exp list) : Environment * Exp =
+    match el with
+    | argL :: EOperator op :: argR :: [] when Option.isSome (env.BinaryOps.TryFind op)-> env, EApplication (EOperator op, argL :: argR :: [])
+    | argL :: EOperator opR :: argR :: EOperator opL :: t -> 
+        if env.BinaryOps.[opR] < env.BinaryOps.[opL]
+        then reduceOperator env ((EApplication (EOperator opR, argL :: argR :: [])) :: EOperator opL :: t)
+        else
+            let env, expList = reduceOperator env (argR :: EOperator opL :: t)
+            env, EApplication(EOperator opR, argL :: expList :: [])
+    | _ -> failwith "not a binary operator expression"
+
 
 let rec reduceTuple (e: Exp) =
     match e with
@@ -127,12 +139,12 @@ let parse (env: Environment) (str: Exp list) : Environment * Exp =
 [<EntryPoint>]
 let main argv =
     let env = Environment.empty
-    let env = { env with BinaryOps = env.BinaryOps.Add(":",  -2) }
-    let env = { env with BinaryOps = env.BinaryOps.Add("->", -1) }
-    let env = { env with BinaryOps = env.BinaryOps.Add("*",  1) }
-    let env = { env with BinaryOps = env.BinaryOps.Add("/",  1) }
-    let env = { env with BinaryOps = env.BinaryOps.Add("+",  2) }
-    let env = { env with BinaryOps = env.BinaryOps.Add("-",  3) }
+    let env = { env with BinaryOps = env.BinaryOps.Add(":",  -1) }
+    let env = { env with BinaryOps = env.BinaryOps.Add("->", -2) }
+    let env = { env with BinaryOps = env.BinaryOps.Add("*",   1) }
+    let env = { env with BinaryOps = env.BinaryOps.Add("/",   1) }
+    let env = { env with BinaryOps = env.BinaryOps.Add("+",   2) }
+    let env = { env with BinaryOps = env.BinaryOps.Add("-",   3) }
 
     [|
         "'c'"
