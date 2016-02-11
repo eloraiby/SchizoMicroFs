@@ -22,29 +22,49 @@ open Schizo.Expression
 open Schizo.Readers
 
 let splitExpList (env: Environment) (el: Exp list) : Environment * Exp list =
+    let te x =
+        match x with
+        | h :: [] -> h
+        | l       -> EList (l |> List.rev)
+
     let temp, state =
         el
         |> List.fold(fun (temp, state) el ->
             match el with
             | EOperator op ->
                 match env.BinaryOps.TryFind op with
-                | Some _ -> [], EList (temp |> List.rev) :: (EOperator op) :: state
+                | Some _ -> [], (EOperator op) :: (te temp) :: state
                 | _ -> el :: temp, state
             | _ -> el :: temp, state) ([], [])
-    env, (EList (temp |> List.rev) :: state) |> List.rev
+
+    let expList = (te temp) :: state
+
+    env, expList |> List.rev
      
 //
 // TODO: use environment, and check if the list contains operators. If it does, reduction
 //       should use priorities from the environment to resort the list
 //
-let reduceList (env: Environment) (el: Exp list) : Environment * Exp =
-    match el with
-    |                   h :: [] -> env, h
-    | EIdentifier       s :: t  -> env, EApplication (EIdentifier s, t)
-    | EOperator         s :: t  -> env, EApplication (EOperator   s, t) // <- This is wrong!
-    | EApplication (h, t) :: tl -> env, EApplication (EApplication (h, t), tl)
-    | _ ->
-        failwith "Expression list is not an application"
+let rec reduceList (env: Environment) (el: Exp list) : Environment * Exp =
+    // check if the expression has an operator
+    let res =
+        el
+        |> List.filter(
+            function
+            | EOperator op when env.BinaryOps.TryFind op |> Option.isSome -> true
+            | _ -> false)
+    if res.Length <> 0
+    then
+        let env, expList = splitExpList env el
+        printfn "%A" expList
+        env, EList expList
+    else
+        match el with
+        |                   h :: [] -> env, h
+        | EIdentifier       s :: t  -> env, EApplication (EIdentifier s, t)
+        | EOperator         s :: t  -> env, EApplication (EOperator   s, t) // <- This is wrong!
+        | EApplication (h, t) :: tl -> env, EApplication (EApplication (h, t), tl)
+        | _ -> failwith "Expression list is not an application"
 
 let rec reduceTuple (e: Exp) =
     match e with
@@ -107,6 +127,13 @@ let parse (env: Environment) (str: Exp list) : Environment * Exp =
 [<EntryPoint>]
 let main argv =
     let env = Environment.empty
+    let env = { env with BinaryOps = env.BinaryOps.Add(":",  -2) }
+    let env = { env with BinaryOps = env.BinaryOps.Add("->", -1) }
+    let env = { env with BinaryOps = env.BinaryOps.Add("*",  1) }
+    let env = { env with BinaryOps = env.BinaryOps.Add("/",  1) }
+    let env = { env with BinaryOps = env.BinaryOps.Add("+",  2) }
+    let env = { env with BinaryOps = env.BinaryOps.Add("-",  3) }
+
     [|
         "'c'"
         "123"
@@ -137,7 +164,7 @@ let main argv =
         "module A { funA : a -> b -> c; funB : d }"
         "1 + 2"
         "1 + 2 * 5"
-        "1-10/30*50"
+        "1 - 10 / 30 * 50"
     |]
     |> Array.iter
         (fun e ->

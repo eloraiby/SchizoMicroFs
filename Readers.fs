@@ -147,7 +147,7 @@ let readNumber (env: Environment) (str: Exp list) : Environment * Exp * Exp list
             else failwith "invalid floating number"
 
     match nextList with
-    | EChar ch :: l when isAlpha ch || isSpecial ch -> failwith "invalid number: followed by a alpha or special character, separator or space is needed"
+    | EChar ch :: l when isAlpha ch -> failwith "invalid number: followed by a alpha or special character, separator or space is needed"
     | _ -> env, token, nextList
    
 let rec skipWS (str: Exp list) : Exp list =
