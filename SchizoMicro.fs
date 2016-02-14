@@ -21,11 +21,11 @@ open System
 open Schizo.Expression
 open Schizo.Readers
 
-let splitExpList (env: Environment) (el: Exp list) : Environment * Exp list =
+let rec splitExpList (env: Environment) (el: Exp list) : Environment * Exp list =
     let te x =
         match x with
         | h :: [] -> h
-        | l       -> EList (l |> List.rev)
+        | l       -> let _, t = l |> List.rev |> reduceList env in t
 
     let temp, state =
         el
@@ -41,17 +41,14 @@ let splitExpList (env: Environment) (el: Exp list) : Environment * Exp list =
 
     env, expList |> List.rev
      
-//
-// TODO: use environment, and check if the list contains operators. If it does, reduction
-//       should use priorities from the environment to resort the list
-//
-let rec reduceList (env: Environment) (el: Exp list) : Environment * Exp =
+and reduceList (env: Environment) (el: Exp list) : Environment * Exp =
     // check if the expression has an operator
     let res =
         el
         |> List.filter(
             function
             | EOperator op when env.BinaryOps.TryFind op |> Option.isSome -> true
+            | EOperator op -> failwith (sprintf "operator %s is not defined!" op)
             | _ -> false)
     if res.Length <> 0
     then
@@ -67,6 +64,7 @@ let rec reduceList (env: Environment) (el: Exp list) : Environment * Exp =
         | _ -> failwith "Expression list is not an application"
 
 and reduceOperator (env: Environment) (el: Exp list) : Environment * Exp =
+
     match el with
     | argL :: EOperator op :: argR :: [] when Option.isSome (env.BinaryOps.TryFind op)-> env, EApplication (EOperator op, argL :: argR :: [])
     | argL :: EOperator opR :: argR :: EOperator opL :: t -> 
@@ -141,10 +139,13 @@ let main argv =
     let env = Environment.empty
     let env = { env with BinaryOps = env.BinaryOps.Add(":",  -1) }
     let env = { env with BinaryOps = env.BinaryOps.Add("->", -2) }
+    let env = { env with BinaryOps = env.BinaryOps.Add(".",  -3) }
     let env = { env with BinaryOps = env.BinaryOps.Add("*",   1) }
     let env = { env with BinaryOps = env.BinaryOps.Add("/",   1) }
     let env = { env with BinaryOps = env.BinaryOps.Add("+",   2) }
-    let env = { env with BinaryOps = env.BinaryOps.Add("-",   3) }
+    let env = { env with BinaryOps = env.BinaryOps.Add("-",   2) }
+    let env = { env with BinaryOps = env.BinaryOps.Add("|",   3) }
+    let env = { env with BinaryOps = env.BinaryOps.Add("-->", 3) }
 
     [|
         "'c'"
@@ -177,6 +178,7 @@ let main argv =
         "1 + 2"
         "1 + 2 * 5"
         "1 - 10 / 30 * 50"
+        "hello world + 10 / 20 - 20 * 50 || abc d e fg hi 12 --> right"
     |]
     |> Array.iter
         (fun e ->
