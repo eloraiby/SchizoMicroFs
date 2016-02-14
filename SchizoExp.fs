@@ -23,7 +23,7 @@ module Schizo.Expression
 
 type List<'T>
 with
-    static member split (count: int) (l: 'T list) =
+    static member splitAt (count: int) (l: 'T list) =
         let rec loop (n: int, left: 'T list, right: 'T list) =
             match n, right with
             | 0, _  -> left |> List.rev, right
@@ -117,7 +117,7 @@ with
                         |> List.zip args
                         |> List.fold (fun (ne: Environment) (k, v) -> ne.AddSymbol (k, v)) env
                     | al, ol when al < ol ->    // split operands into two lists, the tail list is then bound to the last argument
-                        let oh, ot = operands |> List.split (args.Length - 1)
+                        let oh, ot = operands |> List.splitAt (args.Length - 1)
                         let remappedOperands = EList ot :: (oh |> List.rev)
                         remappedOperands
                         |> List.zip args
