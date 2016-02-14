@@ -1,5 +1,5 @@
 //
-// SchizoMicro F# Referemce Compiler
+// SchizoMicro F# Reference Compiler
 // Copyright (C) 2014-2016  Wael El Oraiby
 // 
 // This program is free software: you can redistribute it and/or modify
@@ -46,7 +46,7 @@ and isBinOpExpList (env: Environment) (el: Exp list) : bool =
     |> List.filter(
         function
         | EOperator op when env.BinaryOps.TryFind op |> Option.isSome -> true
-        | EOperator op when env.UnaryOps.TryFind op |> Option.isSome -> false   // unary operators are discarded
+        | EOperator op when env.UnaryOps.TryFind op  |> Option.isSome -> false  // unary operators are discarded
         | EOperator op -> failwith (sprintf "operator %s is not defined!" op)
         | _ -> false)
     |> List.length
@@ -68,7 +68,6 @@ and reduceList (env: Environment) (el: Exp list) : Environment * Exp =
         |> reduceOperator env
     | false -> el |> listToApp env
 
-
 and reduceOperator (env: Environment) (el: Exp list) : Environment * Exp =
     match el with
     | argL :: EOperator op :: argR :: [] when Option.isSome (env.BinaryOps.TryFind op)-> env, EApplication (EOperator op, argL :: argR :: [])
@@ -80,12 +79,10 @@ and reduceOperator (env: Environment) (el: Exp list) : Environment * Exp =
             env, EApplication(EOperator opR, argL :: expList :: [])
     | _ -> failwith "not a binary operator expression"
 
-
 let rec reduceTuple (e: Exp) =
     match e with
     | ETuple (h :: []) -> reduceTuple h
     | _ -> e
-
 
 let rec readListOfExp (env: Environment) splitterChar endingChar (boxFunc: Exp list -> Exp) (acc: Exp list) (str: Exp list) : Environment * Exp * Exp list =
     let str = skipWS str
@@ -106,7 +103,6 @@ let rec readListOfExp (env: Environment) splitterChar endingChar (boxFunc: Exp l
 
         let env, tok, nextList = readList env [] str
         readListOfExp env splitterChar endingChar boxFunc (tok :: acc) nextList
-
 
 and readSequence env   = readListOfExp env ';' '}' ESequence
 
