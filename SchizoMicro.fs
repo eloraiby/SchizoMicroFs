@@ -22,10 +22,10 @@ open Schizo.Expression
 open Schizo.Readers
 
 let rec splitExpList (env: Environment) (el: Exp list) : Environment * Exp list =
-    let te x =
+    let reduceToExp x =
         match x with
         | h :: [] -> h
-        | l       -> let _, t = l |> List.rev |> reduceList env in t
+        | l       -> let _, t = l |> List.rev |> listToApp env in t
 
     let temp, state =
         el
@@ -33,38 +33,43 @@ let rec splitExpList (env: Environment) (el: Exp list) : Environment * Exp list 
             match el with
             | EOperator op ->
                 match env.BinaryOps.TryFind op with
-                | Some _ -> [], (EOperator op) :: (te temp) :: state
+                | Some _ -> [], (EOperator op) :: (reduceToExp temp) :: state
                 | _ -> el :: temp, state
             | _ -> el :: temp, state) ([], [])
 
-    let expList = (te temp) :: state
+    let expList = (reduceToExp temp) :: state
 
     env, expList |> List.rev
      
+and isBinOpExpList (env: Environment) (el: Exp list) : bool =
+    el
+    |> List.filter(
+        function
+        | EOperator op when env.BinaryOps.TryFind op |> Option.isSome -> true
+        | EOperator op when env.UnaryOps.TryFind op |> Option.isSome -> false   // unary operators are discarded
+        | EOperator op -> failwith (sprintf "operator %s is not defined!" op)
+        | _ -> false)
+    |> List.length
+    |> (<>) 0
+
+and listToApp (env: Environment) (el: Exp list) : Environment * Exp =
+    match el with
+    |                   h :: [] -> env, h
+    | EIdentifier       s :: t  -> env, EApplication (EIdentifier s, t)
+    | EApplication (h, t) :: tl -> env, EApplication (EApplication (h, t), tl)
+    | _ -> failwith "Expression list is not an application"
+
 and reduceList (env: Environment) (el: Exp list) : Environment * Exp =
-    // check if the expression has an operator
-    let res =
-        el
-        |> List.filter(
-            function
-            | EOperator op when env.BinaryOps.TryFind op |> Option.isSome -> true
-            | EOperator op -> failwith (sprintf "operator %s is not defined!" op)
-            | _ -> false)
-    if res.Length <> 0
-    then
+    // check if the expression has a binary operator
+    match isBinOpExpList env el with
+    | true ->
         let env, expList = splitExpList env el
         expList
         |> reduceOperator env
-    else
-        match el with
-        |                   h :: [] -> env, h
-        | EIdentifier       s :: t  -> env, EApplication (EIdentifier s, t)
-        | EOperator         s :: t  -> env, EApplication (EOperator   s, t) // <- This is wrong!
-        | EApplication (h, t) :: tl -> env, EApplication (EApplication (h, t), tl)
-        | _ -> failwith "Expression list is not an application"
+    | false -> el |> listToApp env
+
 
 and reduceOperator (env: Environment) (el: Exp list) : Environment * Exp =
-
     match el with
     | argL :: EOperator op :: argR :: [] when Option.isSome (env.BinaryOps.TryFind op)-> env, EApplication (EOperator op, argL :: argR :: [])
     | argL :: EOperator opR :: argR :: EOperator opL :: t -> 
@@ -162,7 +167,7 @@ let main argv =
         "{a b c}"
         "(abc def gfhi)"
         "(abc123 d045ef gf.hi)"
-        "(s 123) () 456 a b 123.0 hh !hello $bla%bla()aha::something"
+//        "(s 123) () 456 a b 123.0 hh !hello $bla%bla()aha::something"
         "(a b (c 10 12 de) (f 10 11 12))"
         "false"
         "true"
@@ -178,7 +183,7 @@ let main argv =
         "1 + 2"
         "1 + 2 * 5"
         "1 - 10 / 30 * 50"
-        "hello world + 10 / 20 - 20 * 50 || abc d e fg hi 12 --> right"
+        "hello world + 10 / 20 - 20 * 50 | abc d e fg hi 12 --> right"
     |]
     |> Array.iter
         (fun e ->
