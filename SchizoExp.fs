@@ -27,7 +27,7 @@ with
         let rec loop (n: int, left: 'T list, right: 'T list) =
             match n, right with
             | 0, _  -> left |> List.rev, right
-            | n, [] -> left |> List.rev, right
+            | n, [] -> left |> List.rev, right // TODO: this makes split very permissive and will not garantie n elements
             | n, h :: t -> loop (n - 1, h :: left, t)
         loop (count, [], l)
 

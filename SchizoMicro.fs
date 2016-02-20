@@ -21,6 +21,16 @@ open System
 open Schizo.Expression
 open Schizo.Readers
 
+let infixMacro (env: Environment) (el: Exp list) : Exp =
+    match el with
+    | EOperator op :: EInt64 priority :: [] -> Environment ({ env with BinaryOps = env.BinaryOps.Add(op, priority |> int) })
+    | _ -> failwith "infix operator requires an operator and int"
+
+let moduleMacro (env: Environment) (el: Exp list) : Exp =
+    match el with
+    | EIdentifier ident :: ESequence seqList :: [] -> failwith "not implemented"  
+    | _ -> failwith "module requires an identifier and a sequence"
+
 let rec splitExpList (env: Environment) (el: Exp list) : Environment * Exp list =
     let reduceToExp x =
         match x with
@@ -47,7 +57,7 @@ and isBinOpExpList (env: Environment) (el: Exp list) : bool =
         function
         | EOperator op when env.BinaryOps.TryFind op |> Option.isSome -> true
         | EOperator op when env.UnaryOps.TryFind op  |> Option.isSome -> false  // unary operators are discarded
-        | EOperator op -> failwith (sprintf "operator %s is not defined!" op)
+        | EOperator op -> failwith (sprintf "operator %s is not defined as binary or unary operator!" op)
         | _ -> false)
     |> List.length
     |> (<>) 0
