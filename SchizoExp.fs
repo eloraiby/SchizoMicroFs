@@ -32,17 +32,6 @@ with
         loop (count, [], l)
 
 type Exp =
-    | EBoolean      of bool     // true | false
-    | EChar         of char
-    | EInt64        of int64    
-    | EReal64       of double
-    | EIdentifier   of string
-    | EOperator     of string
-    | EList         of Exp list // [ ... ; ... ]
-    | ESequence     of Exp list // { ... ; ... ; }
-    | ETuple        of Exp list // ( ... , ... )
-    | EApplication  of Exp * Exp list   // (sym | app) exp exp ...
-
     | NativeMacro   of (Environment * Exp list -> Exp) // native syntax transformer
     | Macro         of string list * Exp list // interpreted syntax transformer
 
@@ -75,7 +64,7 @@ with
         BinaryOps       = Map.empty
         }
 
-
+(*
 type Exp
 with
     static member fromString(str: string) = str |> Seq.toList |> List.map EChar |> EList
@@ -134,4 +123,4 @@ with
 
             | _ -> EApplication (operator, operands)    // syntax could not be expanded anymore, return it as is
         evalCell env x
-
+*)

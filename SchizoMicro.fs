@@ -19,11 +19,13 @@ module Main
 open System
 
 open Schizo.Expression
+open Schizo.Tokens
+(*
 open Schizo.Readers
 
 let infixMacro (env: Environment) (el: Exp list) : Exp =
     match el with
-    | EOperator op :: EInt64 priority :: [] -> Environment ({ env with BinaryOps = env.BinaryOps.Add(op, priority |> int) })
+    | EInt64 priority :: EOperator op :: [] -> Environment ({ env with BinaryOps = env.BinaryOps.Add(op, priority |> int) })
     | _ -> failwith "infix operator requires an operator and int"
 
 let moduleMacro (env: Environment) (el: Exp list) : Exp =
@@ -89,61 +91,7 @@ and reduceOperator (env: Environment) (el: Exp list) : Environment * Exp =
             env, EApplication(EOperator opR, argL :: expList :: [])
     | _ -> failwith "not a binary operator expression"
 
-let rec reduceTuple (e: Exp) =
-    match e with
-    | ETuple (h :: []) -> reduceTuple h
-    | _ -> e
-
-let rec readListOfExp (env: Environment) splitterChar endingChar (boxFunc: Exp list -> Exp) (acc: Exp list) (str: Exp list) : Environment * Exp * Exp list =
-    let str = skipWS str
-    match str with
-    | []                                 -> failwith (sprintf "simplified list doesn't have an end '%c'" endingChar)
-    | EChar ch :: t when ch = endingChar -> let exp = (boxFunc (acc |> List.rev)) in env, exp, t
-    | _ ->
-        let rec readList (environment: Environment) (acc: Exp list) (str: Exp list) : Environment * Exp * Exp list =
-            let str = skipWS str
-            match str with
-            | []                                                        -> failwith (sprintf "list doesn't have an end '%c'" endingChar)
-            | EChar ch :: t when ch = endingChar                        -> let env, exp = (acc |> List.rev |> reduceList env) in env, exp, str
-            | EChar ch :: t when ch = splitterChar                      ->
-                match skipWS t with
-                | EChar ch :: t when ch = endingChar                    -> failwith (sprintf "simplified list ends with splitter '%c'" splitterChar)
-                | _     -> let env, exp = (acc |> List.rev |> reduceList env) in env, exp, t
-            | _                                                         -> let env, tok, nextList = nextToken env str in readList env (tok :: acc) nextList
-
-        let env, tok, nextList = readList env [] str
-        readListOfExp env splitterChar endingChar boxFunc (tok :: acc) nextList
-
-and readSequence env   = readListOfExp env ';' '}' ESequence
-
-and readTuple    env   = readListOfExp env ',' ')' (ETuple >> reduceTuple)
-
-and readList     env   = readListOfExp env ';' ']' EList
-
-and nextToken env (str: Exp list) : Environment * Exp * Exp list =
-    let str = skipWS str
-    match str with
-    | EChar '\'' :: t -> readChar     env    t
-    | EChar '"'  :: t -> readString   env [] t // "
-    | EChar '('  :: t -> readTuple    env [] t
-    | EChar '{'  :: t -> readSequence env [] t
-    | EChar '['  :: t -> readList     env [] t
-    | EChar sign :: EChar ch :: t when (sign = '+' || sign = '-') && isDigit ch -> readNumber env str
-    | EChar ch   :: t when isDigit ch -> readNumber env str
-    | EChar ch   :: t when isAlpha ch -> readSymbolAlphaNum env [] str
-    | EChar ch   :: t when isSpecial ch -> readSymbolSpecial env [] str
-    | _ -> failwith "ill formed Schizo Expression"
-
-let parse (env: Environment) (str: Exp list) : Environment * Exp =
-    let rec loop (env: Environment) (acc: Exp list) (str: Exp list) : Environment * Exp list =
-        match str with
-        | [] -> env, List.rev acc
-        | _ ->
-            let env, tok, nextList = nextToken env str
-            loop env (tok :: acc) nextList
-    
-    let env, expList = loop env [] str
-    expList |> reduceList env
+*)
 
 [<EntryPoint>]
 let main argv =
@@ -190,11 +138,13 @@ let main argv =
         "1 + 2 * 5"
         "1 - 10 / 30 * 50"
         "hello world + 10 / 20 - 20 * 50 | abc d e fg hi 12 --> right"
+        "[1; 2; 3; 4]"
+        "{ a b; c }"
     |]
     |> Array.iter
         (fun e ->
-            let el =  e |> Seq.toList |> List.map EChar
-            let env, el = parse env el
-            printfn "%A" el)
+            let el =  e |> Seq.toList |> List.map TokChar
+            let el = Token.tokenize el
+            printfn "%O" el)
 
     0 // return an integer exit code
