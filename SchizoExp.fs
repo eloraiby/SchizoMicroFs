@@ -39,11 +39,7 @@ type Exp =
     | Exception     of Exp
 
 
-and DebugInfo = {
-    Source          : string
-    Line            : int
-    Offset          : int
-}
+
 
 and Environment = {
     ImportedSymbols : Map<string, Exp>

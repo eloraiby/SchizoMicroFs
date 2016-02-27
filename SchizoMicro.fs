@@ -105,6 +105,7 @@ let main argv =
     let env = { env with BinaryOps = env.BinaryOps.Add("-",   2) }
     let env = { env with BinaryOps = env.BinaryOps.Add("|",   3) }
     let env = { env with BinaryOps = env.BinaryOps.Add("-->", 3) }
+    let env = { env with BinaryOps = env.BinaryOps.Add("$",   7) }
 
     [|
         "'c'"
@@ -121,7 +122,7 @@ let main argv =
         "{a b c}"
         "(abc def gfhi)"
         "(abc123 d045ef gf.hi)"
-//        "(s 123) () 456 a b 123.0 hh !hello $bla%bla()aha::something"
+        "(s 123) () 456 a b 123.0 hh !hello $bla%bla()aha:something"
         "(a b (c 10 12 de) (f 10 11 12))"
         "false"
         "true"
@@ -140,10 +141,21 @@ let main argv =
         "hello world + 10 / 20 - 20 * 50 | abc d e fg hi 12 --> right"
         "[1; 2; 3; 4]"
         "{ a b; c }"
+        "module Type {}"
     |]
     |> Array.iter
         (fun e ->
-            let el =  e |> Seq.toList |> List.map TokChar
+            let el =
+                e
+                |> Seq.toList
+                |> List.fold
+                    (fun (di: DebugInfo, acc) ch ->
+                        match ch with
+                        | '\n' -> let di = { di with Line = di.Line + 1; Offset = di.Offset + 1 } in (di, TokChar (di, ch) :: acc)
+                        | _    -> let di = { di with Offset = di.Offset + 1 } in (di, TokChar (di, ch) :: acc)) (DebugInfo.empty, [])
+                |> snd
+                |> List.rev
+
             let el = Token.tokenize el
             printfn "%O" el)
 

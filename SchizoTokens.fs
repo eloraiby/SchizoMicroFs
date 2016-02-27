@@ -21,29 +21,31 @@ module Schizo.Tokens
 open System
 
 type Token =
-    | TokBoolean      of bool     // true | false
-    | TokChar         of char
-    | TokInt64        of int64    
-    | TokReal64       of double
-    | TokIdentifier   of string
-    | TokOperator     of string
-    | TokList         of Token list // [ ... ; ... ]
-    | TokScope        of Token list // { ... ; ... ; }
-    | TokTuple        of Token list // ( ... , ... )
-    | TokExpression   of Token list // (sym | app) exp exp ... | (sym | app | ident) op exp ...
+    | TokBoolean      of DebugInfo * bool     // true | false
+    | TokChar         of DebugInfo * char
+    | TokInt64        of DebugInfo * int64    
+    | TokReal64       of DebugInfo * double
+    | TokIdentifier   of DebugInfo * string
+    | TokType         of DebugInfo * string
+    | TokOperator     of DebugInfo * string
+    | TokList         of DebugInfo * Token list // [ ... ; ... ]
+    | TokScope        of DebugInfo * Token list // { ... ; ... ; }
+    | TokTuple        of DebugInfo * Token list // ( ... , ... )
+    | TokExpression   of DebugInfo * Token list // (sym | app) exp exp ... | (sym | app | ident) op exp ...
 with
     member x.TokenTypeName =
         match x with
-        | TokBoolean      y -> "boolean"
-        | TokChar         y -> "char"
-        | TokInt64        y -> "int"
-        | TokReal64       y -> "real"
-        | TokIdentifier   y -> "identifier"
-        | TokOperator     y -> "operator"
-        | TokList         y -> "list"
-        | TokScope        y -> "scope"
-        | TokTuple        y -> "tuple"
-        | TokExpression   y -> "expression"
+        | TokBoolean      (di, y) -> "boolean"
+        | TokChar         (di, y) -> "char"
+        | TokInt64        (di, y) -> "int"
+        | TokReal64       (di, y) -> "real"
+        | TokIdentifier   (di, y) -> "identifier"
+        | TokType         (di, y) -> "type"
+        | TokOperator     (di, y) -> "operator"
+        | TokList         (di, y) -> "list"
+        | TokScope        (di, y) -> "scope"
+        | TokTuple        (di, y) -> "tuple"
+        | TokExpression   (di, y) -> "expression"
 
     override x.ToString() =
         let printList chLeft (y: Token list) chRight sep =
@@ -56,26 +58,32 @@ with
             sprintf "%c%s%c" chLeft str chRight
 
         match x with
-        | TokBoolean      y -> y.ToString()
-        | TokChar         y -> sprintf "'%c'" y
-        | TokInt64        y -> y.ToString()
-        | TokReal64       y -> y.ToString()
-        | TokIdentifier   y -> y
-        | TokOperator     y -> y
-        | TokList         y -> printList '[' y ']' ';'
-        | TokScope        y -> printList '{' y '}' ';'
-        | TokTuple        y -> printList '(' y ')' ','
-        | TokExpression   y -> printList '~' y '~' ' '
+        | TokBoolean      (_, y) -> y.ToString()
+        | TokChar         (_, y) -> sprintf "'%c'" y
+        | TokInt64        (_, y) -> y.ToString()
+        | TokReal64       (_, y) -> y.ToString()
+        | TokIdentifier   (_, y) -> y
+        | TokType         (_, y) -> sprintf "*%s*" y
+        | TokOperator     (_, y) -> y
+        | TokList         (_, y) -> printList '[' y ']' ';'
+        | TokScope        (_, y) -> printList '{' y '}' ';'
+        | TokTuple        (_, y) -> printList '(' y ')' ','
+        | TokExpression   (_, y) -> printList '~' y '~' ' '
 
-let private isAlpha ch =
-    if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch = '_')
-    then true
-    else false
+and DebugInfo = {
+    Source          : string
+    Line            : int
+    Offset          : int
+} with
+    static member empty = { Source = ""; Line = 0; Offset = 0 }
 
-let private isDigit ch =
-    if ch >= '0' && ch <= '9'
-    then true
-    else false
+
+
+let private isAlpha ch = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch = '_')
+
+let private isDigit ch = ch >= '0' && ch <= '9'
+
+let private isUpper ch = ch >= 'A' && ch <= 'Z'
 
 let private isSpecial =
     function
@@ -88,20 +96,20 @@ let private isSpecial =
 
 let private readChar (str: Token list) : Token * Token list =
     match str with
-    | TokChar '\\' :: TokChar ch :: TokChar '\'' :: t ->
+    | TokChar (di, '\\') :: TokChar (_, ch) :: TokChar (_, '\'') :: t ->
         match ch with
-        | 'n'  -> TokChar '\n', t
-        | 'r'  -> TokChar '\r', t
-        | 'a'  -> TokChar '\a', t
-        | '\'' -> TokChar '\'', t
+        | 'n'  -> TokChar (di, '\n'), t
+        | 'r'  -> TokChar (di, '\r'), t
+        | 'a'  -> TokChar (di, '\a'), t
+        | '\'' -> TokChar (di, '\''), t
         | _    -> failwith (sprintf "unknown escape character %c after \\ in char" ch)
-    | TokChar ch   :: TokChar '\'' :: t       -> TokChar ch, t
-    | _               -> failwith "not a well formed char"
+    | TokChar (di, ch) :: TokChar (_, '\'') :: t       -> TokChar (di, ch), t
+    | _               -> failwith "readChar: not a well formed char"
 
 let rec private readString (acc: Token list) (str: Token list) : Token * Token list =
     match str with
-    | TokChar '"'  :: t -> TokList (acc |> List.rev), t // "
-    | TokChar '\\' :: TokChar ch :: t ->
+    | TokChar (di, '"')  :: t -> TokList (di, (acc |> List.rev)), t // "
+    | TokChar (di, '\\') :: TokChar (_, ch) :: t ->
         let newCh =
             match ch with
             | 'n'  -> '\n'
@@ -109,28 +117,31 @@ let rec private readString (acc: Token list) (str: Token list) : Token * Token l
             | 'a'  -> '\a'
             | '\'' -> '\''
             | _    -> failwith (sprintf "unknown escape character %c after \\ in string" ch)
-        readString (TokChar newCh :: acc) t
+        readString (TokChar (di, newCh) :: acc) t
     | ch :: t -> readString (ch :: acc) t
-    | _ -> failwith "ill formated string"
+    | _ -> failwith "readString: ill formated string"
 
-let rec private readSymbolAlphaNum (acc: Token list) (str: Token list) : Token * Token list =
+let rec private readSymbolAlphaNum di (acc: Token list) (str: Token list) : Token * Token list =
     match str with
-    | TokChar ch :: t when isAlpha ch || isDigit ch -> readSymbolAlphaNum (TokChar ch :: acc) t
+    | TokChar (_di, ch) :: t when isAlpha ch || isDigit ch -> readSymbolAlphaNum di (TokChar (_di, ch) :: acc) t
     | _ ->
-        let sym = System.String(acc |> List.rev |> Array.ofList |> Array.map (function | TokChar ch -> ch | _ -> failwith "unreachable"))
+        let sym = System.String(acc |> List.rev |> Array.ofList |> Array.map (function | TokChar (_, ch) -> ch | _ -> failwith "unreachable"))
         let sym =
             match sym with
-            | "true"  -> TokBoolean true
-            | "false" -> TokBoolean false
-            | _ -> TokIdentifier sym
+            | ""      -> failwith "invalid identifier (null)"
+            | "true"  -> TokBoolean (di, true)
+            | "false" -> TokBoolean (di, false)
+            | str when str.[0] |> isUpper -> TokType (di, sym)
+            | str     -> TokIdentifier (di, sym)
         sym, str    // anything else, just bail
 
-let rec private readSymbolSpecial (acc: Token list) (str: Token list) : Token * Token list =
+let rec private readSymbolSpecial di (acc: Token list) (str: Token list) : Token * Token list =
     match str with
-    | TokChar ch :: t when isSpecial ch -> readSymbolSpecial (TokChar ch :: acc) t
-    | _                     ->
-        let sym = System.String(acc |> List.rev |> Array.ofList |> Array.map (function | TokChar ch -> ch | _ -> failwith "unreachable"))
-        TokOperator sym, str    // anything else, just bail
+    | TokChar (_di, ch) :: t when isSpecial ch -> readSymbolSpecial di (TokChar (_di, ch) :: acc) t
+    | TokChar (_di, ch) :: _                     ->
+        let sym = System.String(acc |> List.rev |> Array.ofList |> Array.map (function | TokChar (_, ch) -> ch | _ -> failwith "readSymbolSpecial: unreachable"))
+        TokOperator (di, sym), str    // anything else, just bail
+    | _ -> failwith "readSymbolSpecial: unreachable"
 //
 // floating point grammar
 // D   [0-9]
@@ -138,31 +149,31 @@ let rec private readSymbolSpecial (acc: Token list) (str: Token list) : Token * 
 //
 // {D}+"."{D}+{E}?
 //
-let private readNumber (str: Token list) : Token * Token list=
-    let rec readInt (acc: Token list) (str: Token list) =
+let private readNumber di (str: Token list) : Token * Token list=
+    let rec readInt (acc: Token list) (str: Token list) : Token list * Token list =
         match str with
-        | TokChar ch :: t when isDigit ch ->  readInt (TokChar ch :: acc) t
+        | TokChar (di, ch) :: t when isDigit ch ->  readInt (TokChar (di, ch) :: acc) t
         | _ -> List.rev acc, str
 
     let integral, nextList =
         match str with
-        | TokChar '+' :: t -> let i, nextList = readInt [] t in TokChar '+' :: i, nextList
-        | TokChar '-' :: t -> let i, nextList = readInt [] t in TokChar '-' :: i, nextList
+        | TokChar (di, '+') :: t -> let i, nextList = readInt [] t in TokChar (di, '+') :: i, nextList
+        | TokChar (di, '-') :: t -> let i, nextList = readInt [] t in TokChar (di, '-') :: i, nextList
         | _ -> readInt [] str
 
     let decimal, nextList =
         match nextList with
-        | TokChar '.' :: t -> let d, nextList = readInt [] t in TokChar '.' :: d, nextList
+        | TokChar (di, '.') :: t -> let d, nextList = readInt [] t in TokChar (di, '.') :: d, nextList
         | _ -> [], nextList
 
     let expo, nextList =
         match decimal, nextList with
         | [], _ -> [], nextList
-        | _, TokChar 'E' :: t
-        | _, TokChar 'e' :: t ->
+        | _, TokChar (di, 'E') :: t
+        | _, TokChar (di, 'e') :: t ->
             match t with
-            | TokChar '+' :: t -> let i, nextList = readInt [] t in TokChar 'E' :: TokChar '+' :: i, nextList
-            | TokChar '-' :: t -> let i, nextList = readInt [] t in TokChar 'E' :: TokChar '-' :: i, nextList
+            | TokChar (di2, '+') :: t -> let i, nextList = readInt [] t in (TokChar (di, 'E')) :: (TokChar (di2, '+')) :: i, nextList
+            | TokChar (di2, '-') :: t -> let i, nextList = readInt [] t in (TokChar (di, 'E')) :: (TokChar (di2, '-')) :: i, nextList
             | t -> readInt [] t
         | _, _ -> [], nextList
         
@@ -170,30 +181,30 @@ let private readNumber (str: Token list) : Token * Token list=
     let token, nextList =
         match integral, decimal, expo with
         | integral, [], _ ->
-            let intstr = System.String (integral |> List.toArray |> Array.map (function | TokChar ch -> ch | _ -> failwith "unreachable"))
+            let intstr = System.String (integral |> List.toArray |> Array.map (function | TokChar (_, ch) -> ch | _ -> failwith "unreachable"))
 
             if intstr.Length <> 0
-            then TokInt64 (Convert.ToInt64 intstr), nextList
+            then TokInt64 (di, Convert.ToInt64 intstr), nextList
             else failwith "invalid integer number"
 
         | integral, decimal, [] ->
             let number =  List.append integral decimal 
-            let number = System.String (number |> List.toArray |> Array.map (function | TokChar ch -> ch | _ -> failwith "unreachable"))
+            let number = System.String (number |> List.toArray |> Array.map (function | TokChar (_, ch) -> ch | _ -> failwith "unreachable"))
 
             if number.Length <> 0
-            then TokReal64 (Convert.ToDouble number), nextList
+            then TokReal64 (di, Convert.ToDouble number), nextList
             else failwith "invalid floating number"
 
         | integral, decimal, expo ->
             let number = List.append  (List.append integral decimal) expo
-            let number = System.String (number |> List.toArray |> Array.map (function | TokChar ch -> ch | _ -> failwith "unreachable"))
+            let number = System.String (number |> List.toArray |> Array.map (function | TokChar (_, ch) -> ch | _ -> failwith "unreachable"))
 
             if number.Length <> 0
-            then TokReal64 (Convert.ToDouble number), nextList
+            then TokReal64 (di, Convert.ToDouble number), nextList
             else failwith "invalid floating number"
 
     match nextList with
-    | TokChar ch :: l when isAlpha ch -> failwith "invalid number: followed by a alpha or special character, separator or space is needed"
+    | TokChar (_, ch) :: l when isAlpha ch -> failwith "invalid number: followed by a alpha or special character, separator or space is needed"
     | _ -> token, nextList
    
 let rec private skipWS (str: Token list) : Token list =
@@ -204,58 +215,60 @@ let rec private skipWS (str: Token list) : Token list =
         | _    -> false
 
     match str with
-    | TokChar ch :: t when isWS ch -> skipWS t
+    | TokChar (_, ch) :: t when isWS ch -> skipWS t
     | _ -> str
 
 
 let rec private reduceTuple (e: Token) =
     match e with
-    | TokTuple (h :: []) -> reduceTuple h
+    | TokTuple (di, (h :: [])) -> reduceTuple h
     | _ -> e
 
-let reduceExpression (toks: Token list) =
+let reduceExpression di (toks: Token list) =
     match toks with
     | h :: [] -> h
-    | _       -> TokExpression toks
+    | _       -> TokExpression (di, toks)
 
-let rec private readListOfTokens splitterChar endingChar (boxFunc: Token list -> Token) (acc: Token list) (str: Token list) : Token * Token list =
+let curr2Tup f x y = f(x, y)
+
+let rec private readListOfTokens di splitterChar endingChar (boxFunc: DebugInfo -> Token list -> Token) (acc: Token list) (str: Token list) : Token * Token list =
     let str = skipWS str
     match str with
-    | []                                 -> failwith (sprintf "%s doesn't have an end '%c'" ((boxFunc []).TokenTypeName) endingChar)
-    | TokChar ch :: t when ch = endingChar -> let exp = (boxFunc (acc |> List.rev)) in exp, t
+    | []                                 -> failwith (sprintf "%s doesn't have an end '%c'" ((boxFunc di []).TokenTypeName) endingChar)
+    | TokChar (_, ch) :: t when ch = endingChar -> let exp = (boxFunc di (acc |> List.rev)) in exp, t
     | _ ->
         let rec readList (acc: Token list) (str: Token list) : Token * Token list =
             let str = skipWS str
             match str with
-            | []                                                        -> failwith (sprintf "%s doesn't have an end '%c'" ((boxFunc []).TokenTypeName) endingChar)
-            | TokChar ch :: t when ch = endingChar                      -> let exp = acc |> List.rev |> reduceExpression in exp, str
-            | TokChar ch :: t when ch = splitterChar                    ->
+            | []                                                        -> failwith (sprintf "%s doesn't have an end '%c'" ((boxFunc di []).TokenTypeName) endingChar)
+            | TokChar (_, ch) :: t when ch = endingChar                 -> let exp = acc |> List.rev |> reduceExpression di in exp, str
+            | TokChar (_, ch) :: t when ch = splitterChar               ->
                 match skipWS t with
-                | TokChar ch :: t when ch = endingChar                  -> failwith (sprintf "%s ends with splitter '%c'" ((boxFunc []).TokenTypeName) splitterChar)
-                | _     -> let exp = acc |> List.rev |> reduceExpression in exp, t
+                | TokChar (_, ch) :: t when ch = endingChar             -> failwith (sprintf "%s ends with splitter '%c'" ((boxFunc di []).TokenTypeName) splitterChar)
+                | _     -> let exp = acc |> List.rev |> reduceExpression di in exp, t
             | _                                                         -> let tok, nextList = nextToken str in readList (tok :: acc) nextList
 
         let tok, nextList = readList [] str
-        readListOfTokens splitterChar endingChar boxFunc (tok :: acc) nextList
+        readListOfTokens di splitterChar endingChar boxFunc (tok :: acc) nextList
 
-and private readScope   = readListOfTokens ';' '}' TokScope
+and private readScope di = readListOfTokens di ';' '}' (curr2Tup TokScope)
 
-and private readTuple   = readListOfTokens ',' ')' (TokTuple >> reduceTuple)
+and private readTuple di = readListOfTokens di ',' ')' (curr2Tup (TokTuple >> reduceTuple))
 
-and private readList    = readListOfTokens ';' ']' TokList
+and private readList  di = readListOfTokens di ';' ']' (curr2Tup TokList)
 
 and private nextToken (str: Token list) : Token * Token list =
     let str = skipWS str
     match str with
-    | TokChar '\'' :: t -> readChar        t
-    | TokChar '"'  :: t -> readString   [] t // "
-    | TokChar '('  :: t -> readTuple    [] t
-    | TokChar '{'  :: t -> readScope    [] t
-    | TokChar '['  :: t -> readList     [] t
-    | TokChar sign :: TokChar ch :: t when (sign = '+' || sign = '-') && isDigit ch -> readNumber str
-    | TokChar ch   :: t when isDigit ch   -> readNumber str
-    | TokChar ch   :: t when isAlpha ch   -> readSymbolAlphaNum [] str
-    | TokChar ch   :: t when isSpecial ch -> readSymbolSpecial  [] str
+    | TokChar (di, '\'') :: t -> readChar        t
+    | TokChar (di, '"' ) :: t -> readString   [] t // "
+    | TokChar (di, '(' ) :: t -> readTuple    di [] t
+    | TokChar (di, '{' ) :: t -> readScope    di [] t
+    | TokChar (di, '[' ) :: t -> readList     di [] t
+    | TokChar (di, sign) :: TokChar (_, ch) :: t when (sign = '+' || sign = '-') && isDigit ch -> readNumber di str
+    | TokChar (di, ch  ) :: t when isDigit ch   -> readNumber di str
+    | TokChar (di, ch  ) :: t when isAlpha ch   -> readSymbolAlphaNum di [] str
+    | TokChar (di, ch  ) :: t when isSpecial ch -> readSymbolSpecial di [] str
     | _ -> failwith "ill formed Schizo Token"
 
 type Token
@@ -269,4 +282,4 @@ with
                 loop (tok :: acc) nextList
         
         let expList = loop [] str
-        expList |> TokExpression
+        expList |> curr2Tup TokExpression DebugInfo.empty
