@@ -27,6 +27,7 @@ type Token =
     | TokReal64       of DebugInfo * double
     | TokIdentifier   of DebugInfo * string
     | TokType         of DebugInfo * string
+    | TokGeneric      of DebugInfo * string
     | TokOperator     of DebugInfo * string
     | TokList         of DebugInfo * Token list // [ ... ; ... ]
     | TokScope        of DebugInfo * Token list // { ... ; ... ; }
@@ -41,6 +42,7 @@ with
         | TokReal64       (di, y) -> "real"
         | TokIdentifier   (di, y) -> "identifier"
         | TokType         (di, y) -> "type"
+        | TokGeneric      (di, y) -> "generic"
         | TokOperator     (di, y) -> "operator"
         | TokList         (di, y) -> "list"
         | TokScope        (di, y) -> "scope"
@@ -64,6 +66,7 @@ with
         | TokReal64       (_, y) -> y.ToString()
         | TokIdentifier   (_, y) -> y
         | TokType         (_, y) -> sprintf "*%s*" y
+        | TokGeneric      (_, y) -> sprintf "`%s`" y
         | TokOperator     (_, y) -> y
         | TokList         (_, y) -> printList '[' y ']' ';'
         | TokScope        (_, y) -> printList '{' y '}' ';'
@@ -87,7 +90,7 @@ let private isUpper ch = ch >= 'A' && ch <= 'Z'
 
 let private isSpecial =
     function
-    | '`'   | '!'   | '@'   | '#' 
+    | '`'   | '!'   | '@'    
     | '$'   | '%'   | '^'   | '&' 
     | '*'   | '-'   | '+'   | '='
     | '/'   | '?'   | '<'   | '>'
@@ -123,7 +126,7 @@ let rec private readString (acc: Token list) (str: Token list) : Token * Token l
 
 let rec private readSymbolAlphaNum di (acc: Token list) (str: Token list) : Token * Token list =
     match str with
-    | TokChar (_di, ch) :: t when isAlpha ch || isDigit ch -> readSymbolAlphaNum di (TokChar (_di, ch) :: acc) t
+    | TokChar (_di, ch) :: t when isAlpha ch || isDigit ch || (acc = [] && ch = '#') -> readSymbolAlphaNum di (TokChar (_di, ch) :: acc) t
     | _ ->
         let sym = System.String(acc |> List.rev |> Array.ofList |> Array.map (function | TokChar (_, ch) -> ch | _ -> failwith "unreachable"))
         let sym =
@@ -131,7 +134,8 @@ let rec private readSymbolAlphaNum di (acc: Token list) (str: Token list) : Toke
             | ""      -> failwith "invalid identifier (null)"
             | "true"  -> TokBoolean (di, true)
             | "false" -> TokBoolean (di, false)
-            | str when str.[0] |> isUpper -> TokType (di, sym)
+            | str when str.[0] |> isUpper -> TokType    (di, sym)
+            | str when str.[0] = '#'      -> TokGeneric (di, sym)
             | str     -> TokIdentifier (di, sym)
         sym, str    // anything else, just bail
 
@@ -267,7 +271,7 @@ and private nextToken (str: Token list) : Token * Token list =
     | TokChar (di, '[' ) :: t -> readList     di [] t
     | TokChar (di, sign) :: TokChar (_, ch) :: t when (sign = '+' || sign = '-') && isDigit ch -> readNumber di str
     | TokChar (di, ch  ) :: t when isDigit ch   -> readNumber di str
-    | TokChar (di, ch  ) :: t when isAlpha ch   -> readSymbolAlphaNum di [] str
+    | TokChar (di, ch  ) :: t when isAlpha ch || ch = '#' -> readSymbolAlphaNum di [] str
     | TokChar (di, ch  ) :: t when isSpecial ch -> readSymbolSpecial di [] str
     | _ -> failwith "ill formed Schizo Token"
 

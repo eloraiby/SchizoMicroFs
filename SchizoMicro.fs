@@ -142,6 +142,7 @@ let main argv =
         "[1; 2; 3; 4]"
         "{ a b; c }"
         "module Type {}"
+        "datatype Type = Type #a #b #c#"
     |]
     |> Array.iter
         (fun e ->
@@ -152,7 +153,8 @@ let main argv =
                     (fun (di: DebugInfo, acc) ch ->
                         match ch with
                         | '\n' -> let di = { di with Line = di.Line + 1; Offset = di.Offset + 1 } in (di, TokChar (di, ch) :: acc)
-                        | _    -> let di = { di with Offset = di.Offset + 1 } in (di, TokChar (di, ch) :: acc)) (DebugInfo.empty, [])
+                        | _    -> let di = { di with Offset = di.Offset + 1 } in (di, TokChar (di, ch) :: acc))
+                    (DebugInfo.empty, [])
                 |> snd
                 |> List.rev
 

@@ -21,6 +21,8 @@
 //
 module Schizo.Expression
 
+open Schizo.Tokens
+
 type List<'T>
 with
     static member splitAt (count: int) (l: 'T list) =
@@ -31,30 +33,30 @@ with
             | n, h :: t -> loop (n - 1, h :: left, t)
         loop (count, [], l)
 
-type Exp =
-    | NativeMacro   of (Environment * Exp list -> Exp) // native syntax transformer
-    | Macro         of string list * Exp list // interpreted syntax transformer
-
-    | Environment   of Environment // only native macros can export environments
-    | Exception     of Exp
-
-
-
-
 and Environment = {
-    ImportedSymbols : Map<string, Exp>
-    SymbolMap       : Map<string, Exp>
-    UnaryOps        : Map<string, int>
-    BinaryOps       : Map<string, int>
+    Parent          : Environment option
+    Modules         : Environment list
+    SymbolMap       : Map<string, Exp * SxType>
+    UnaryOps        : Map<string, int * SxType>
+    BinaryOps       : Map<string, int * SxType>
 }
 
 type Environment
 with
-    member x.TryFindSymbol s    = x.SymbolMap.TryFind s
+    member x.TryFindSymbol s    =
+        let sym = x.SymbolMap.TryFind s
+        match sym with
+        | None ->
+            match x.Parent with
+            | None -> None
+            | Some p -> p.TryFindSymbol s
+        | _ -> sym
+
     member x.AddSymbol (s, v)   = { x with SymbolMap = x.SymbolMap.Add (s, v) }
 
     static member empty = {
-        ImportedSymbols = Map.empty
+        Parent          = None
+        Modules         = []
         SymbolMap       = Map.empty
         UnaryOps        = Map.empty
         BinaryOps       = Map.empty

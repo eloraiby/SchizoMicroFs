@@ -72,4 +72,10 @@
   <Target Name="AfterBuild">
   </Target>
   -->
+  <ItemGroup>
+    <ProjectReference Include="SchizoVM\SchizoVM.fsproj">
+      <Project>{0F90B8AF-C954-41A2-98F0-5EEF2DB8D125}</Project>
+      <Name>SchizoVM</Name>
+    </ProjectReference>
+  </ItemGroup>
 </Project>
