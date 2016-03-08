@@ -77,7 +77,6 @@ and SxExp =
     | ExpReal       of float
     | ExpTuple      of SxExp []
     | ExpRecord     of (string * SxExp) []
-    | ExpOpaque     of int * SxType    // Assert (runtime only (should never exist in code))
     | ExpData       of SxType  * SxExp []
     | ExpSymbol     of string
 
